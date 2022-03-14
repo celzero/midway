@@ -31,14 +31,14 @@ func main() {
 	if err != nil {
 		log.Fatalf("couldn't listen to %q: %q\n", addr, err.Error())
 	}
-	pp := proxyproto.Listener{Listener: ln}
+	pp := &proxyproto.Listener{Listener: ln}
 
-	go handleUDP(&udp)
-	go handleTCP(&tcp)
-	go handlePP(&pp)
+	go handleUDP(udp)
+	go handleTCP(tcp)
+	go handlePP(pp)
 }
 
-func handleUDP(c *net.PacketConn) {
+func handleUDP(c net.PacketConn) {
 	packet := make([]byte, 2000)
 
 	for {
@@ -52,13 +52,13 @@ func handleUDP(c *net.PacketConn) {
 	}
 }
 
-func handleTCP(tcp *net.Listener) {
+func handleTCP(tcp net.Listener) {
 	for {
 		conn, err := tcp.Accept()
 		if err != nil {
 			fmt.Println("error in accepting tcp package")
 		} else {
-			go process(&conn)
+			go process(conn)
 		}
 	}
 }
@@ -69,12 +69,12 @@ func handlePP(pp *proxyproto.Listener) {
 		if err != nil {
 			fmt.Println("error in accepting proxy-proto tcp package")
 		} else {
-			go process(&conn)
+			go process(conn)
 		}
 	}
 }
 
-func process(conn *net.Conn) {
+func process(conn net.Conn) {
 	message, _ := bufio.NewReader(conn).ReadString('\n')
 	fmt.Print("Message Received:" + string(message))
 	//send to socket
