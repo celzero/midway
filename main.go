@@ -12,6 +12,7 @@ import (
 
 func main() {
 	var wg sync.WaitGroup
+	wg.Add(1)
 	port := 5000
 	// setting up tcp server
 	tcp, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
