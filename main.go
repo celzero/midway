@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"sync"
 
 	proxyproto "github.com/pires/go-proxyproto"
 )
 
 func main() {
+	var wg sync.WaitGroup
 	port := 5000
 	// setting up tcp server
 	tcp, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
@@ -36,6 +38,8 @@ func main() {
 	go handleUDP(udp)
 	go handleTCP(tcp)
 	go handlePP(pp)
+	
+	wg.Wait()
 }
 
 func handleUDP(c net.PacketConn) {
