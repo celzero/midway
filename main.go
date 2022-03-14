@@ -55,21 +55,6 @@ func main() {
 		}
 
 	}
-	
-	defer proxyListener.Close()
-	//defer conn.Close()
-	
-	/*
-	//accepting proxy protocol
-	// Wrap listener in a proxyproto listener
-	proxyListener := &proxyproto.Listener{Listener: list}
-	defer proxyListener.Close()
-	// Wait for a connection and accept it
-	conn, err := proxyListener.Accept()
-	defer conn.Close()
-	handleConnection(conn)
-	*/
-
 }
 
 func handleUDP(c net.PacketConn) {
