@@ -3,16 +3,17 @@ on:
   push:
     branches:
        - "main"
-env:
-  FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
-  FLY_APP: ${{ secrets.FLY_APP_NAME }}
-
-workflow_dispatch:
+  workflow_dispatch:
     inputs:
       git-ref:
         description: "Branch / ref / tag to build"
         required: false
         default: "main"  
+env:
+  FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+  FLY_APP: ${{ secrets.FLY_APP_NAME }}
+
+
   
 jobs:
   deploy:
@@ -23,4 +24,4 @@ jobs:
           uses: actions/checkout@v2
           
         - name: 🚢 Ship
-        uses: superfly/flyctl-actions@1.1
+          uses: superfly/flyctl-actions@1.1
