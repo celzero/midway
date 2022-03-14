@@ -44,7 +44,22 @@ func main() {
 		}
 
 	}
+	
+	for {
+		proxyListener := &proxyproto.Listener{Listener: list}
+		conn, err := proxyListener.Accept()
+		if err != nil {
+			fmt.Println("error in accepting proxy-proto tcp package")
+		} else {
+			go handleConnection(conn)
+		}
 
+	}
+	
+	defer proxyListener.Close()
+	//defer conn.Close()
+	
+	/*
 	//accepting proxy protocol
 	// Wrap listener in a proxyproto listener
 	proxyListener := &proxyproto.Listener{Listener: list}
@@ -53,6 +68,7 @@ func main() {
 	conn, err := proxyListener.Accept()
 	defer conn.Close()
 	handleConnection(conn)
+	*/
 
 }
 
