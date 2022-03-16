@@ -18,4 +18,4 @@ RUN mkdir /app/
 WORKDIR /app
 COPY --from=builder /app/udp-echo ./
 
-CMD ["udp-echo"]
+CMD ["./udp-echo"]
