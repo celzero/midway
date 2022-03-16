@@ -5,13 +5,16 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"sync"
 
 	proxyproto "github.com/pires/go-proxyproto"
 )
 
 func main() {
+	var wg sync.WaitGroup
+	wg.Add(1)
 	port := 5000
-	//setting up tcp server
+	// setting up tcp server
 	tcp, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
 		fmt.Println("error in starting the tcp server")
@@ -19,41 +22,25 @@ func main() {
 		fmt.Println("server started on port 5000")
 	}
 
-	//setting up udp server
+	// setting up udp server
 	udp, err := net.ListenPacket("udp", fmt.Sprintf("fly-global-services:%d", port))
 	if err != nil {
 		log.Fatalf("can't listen on %d/udp: %s", port, err)
 	}
 
-	//setting up proxy protocol
+	// setting up proxy protocol
 	addr := "0.0.0.0:5001"
-	list, err := net.Listen("tcp", addr)
+	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		log.Fatalf("couldn't listen to %q: %q\n", addr, err.Error())
 	}
+	pp := &proxyproto.Listener{Listener: ln}
 
 	go handleUDP(udp)
-
-	//accepting tcp connections
-	for {
-		conn, err := tcp.Accept()
-		if err != nil {
-			fmt.Println("error in accepting tcp package")
-		} else {
-			go handleConnection(conn)
-		}
-
-	}
-
-	//accepting proxy protocol
-	// Wrap listener in a proxyproto listener
-	proxyListener := &proxyproto.Listener{Listener: list}
-	defer proxyListener.Close()
-	// Wait for a connection and accept it
-	conn, err := proxyListener.Accept()
-	defer conn.Close()
-	handleConnection(conn)
-
+	go handleTCP(tcp)
+	go handlePP(pp)
+	
+	wg.Wait()
 }
 
 func handleUDP(c net.PacketConn) {
@@ -70,7 +57,29 @@ func handleUDP(c net.PacketConn) {
 	}
 }
 
-func handleConnection(conn net.Conn) {
+func handleTCP(tcp net.Listener) {
+	for {
+		conn, err := tcp.Accept()
+		if err != nil {
+			fmt.Println("error in accepting tcp package")
+		} else {
+			go process(conn)
+		}
+	}
+}
+
+func handlePP(pp *proxyproto.Listener) {
+	for {
+		conn, err := pp.Accept()
+		if err != nil {
+			fmt.Println("error in accepting proxy-proto tcp package")
+		} else {
+			go process(conn)
+		}
+	}
+}
+
+func process(conn net.Conn) {
 	message, _ := bufio.NewReader(conn).ReadString('\n')
 	fmt.Print("Message Received:" + string(message))
 	//send to socket
