@@ -1,4 +1,4 @@
-FROM golang:1.17-alpine
+FROM golang:1.17-alpine AS builder
 
 RUN     mkdir /app
 WORKDIR /app
@@ -11,5 +11,11 @@ COPY    *.go ./
 
 RUN     go build -o ./udp-echo
 
-CMD     ./udp-echo
+FROM golang:1.17-alpine AS runner
 
+RUN mkdir /app/ 
+
+WORKDIR /app
+COPY --from=builder /app/udp-echo ./
+
+CMD ["udp-echo"]
