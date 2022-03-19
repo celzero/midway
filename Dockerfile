@@ -11,7 +11,7 @@ COPY    *.go ./
 
 RUN     go build -o ./udp-echo
 
-FROM golang:1.17-alpine AS runner
+FROM alpine AS runner
 
 RUN mkdir /app/ 
 
