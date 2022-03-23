@@ -28,18 +28,12 @@ func main() {
 	}
 
 	//setting up tls server
-	l, err := net.Listen("tcp", ":443")
+	t, err := net.Listen("tcp", ":443")
 	if err != nil {
 		log.Fatal(err)
 	}
-	for {
-		conn, err := l.Accept()
-		if err != nil {
-			log.Print(err)
-			continue
-		}
-		go handleTlsConnection(conn)
-	}
+	tls := &proxyproto.Listener{Listener: t}
+	
 
 	// setting up udp server
 	udp, err := net.ListenPacket("udp", fmt.Sprintf("fly-global-services:%d", port))
@@ -53,12 +47,12 @@ func main() {
 	if err != nil {
 		log.Fatalf("couldn't listen to %q: %q\n", addr, err.Error())
 	}
-	pp := &proxyproto.Listener{Listener: ln}
+	pp := &proxyproto.Listener{Listener: ln} //converting tcp connection to proxy proto
 
 	go handleUDP(udp)
 	go handleTCP(tcp)
 	go handlePP(pp)
-
+	go handlePPTLS(tls)
 	wg.Wait()
 }
 
@@ -95,6 +89,17 @@ func handlePP(pp *proxyproto.Listener) {
 		} else {
 			go process(conn)
 		}
+	}
+}
+
+func handlePPTLS(tls *proxyproto.Listener) {
+	for {
+		conn, err := tls.Accept()
+		if err != nil {
+			log.Print(err)
+			continue
+		}
+		go handleTlsConnection(conn)
 	}
 }
 
