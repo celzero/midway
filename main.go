@@ -215,8 +215,8 @@ func handleTlsConnection(clientConn net.Conn) {
 	}
 
 	clientHello, clientReader, err := peekClientHello(clientConn)
-	if err != nil {
-		log.Print("peek client hello err", err)
+	if err != nil || clientHello == nil || len(clientHello.ServerName) <= 0 {
+		log.Printf("peek client hello err %v %v %d", err, clientHello, len(clientHello.ServerName))
 		return
 	}
 
