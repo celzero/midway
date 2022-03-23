@@ -8,7 +8,6 @@ import (
 	"io"
 	"log"
 	"net"
-	"strings"
 	"sync"
 	"time"
 
@@ -17,12 +16,12 @@ import (
 
 func main() {
 	var wg sync.WaitGroup
-	wg.Add(1)
+	wg.Add(5)
 	port := 5000
 	// setting up tcp server
 	tcp, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
-		fmt.Println("error in starting the tcp server")
+		fmt.Println("error starting the tcp server")
 	} else {
 		fmt.Println("server started on port 5000")
 	}
@@ -32,13 +31,17 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	tls := &proxyproto.Listener{Listener: t}
-	
+	pptls := &proxyproto.Listener{Listener: t}
+
+	tcptls, err := net.Listen("tcp", ":4443")
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	// setting up udp server
 	udp, err := net.ListenPacket("udp", fmt.Sprintf("fly-global-services:%d", port))
 	if err != nil {
-		log.Fatalf("can't listen on %d/udp: %s", port, err)
+		log.Printf("can't listen on %d/udp: %s", port, err)
 	}
 
 	// setting up proxy protocol
@@ -49,54 +52,97 @@ func main() {
 	}
 	pp := &proxyproto.Listener{Listener: ln} //converting tcp connection to proxy proto
 
-	go handleUDP(udp)
-	go handleTCP(tcp)
-	go handlePP(pp)
-	go handlePPTLS(tls)
+	go handleUDP(udp, wg)
+	go handleTCP(tcp, wg)
+	go handlePP(pp, wg)
+	go handlePPTLS(pptls, wg)
+	go handleTCPTLS(tcptls, wg)
+
 	wg.Wait()
 }
 
-func handleUDP(c net.PacketConn) {
+func handleUDP(c net.PacketConn, wg sync.WaitGroup) {
+	if c == nil {
+		log.Print("Exiting udp")
+		//wg.Done()
+		return
+	}
+
 	packet := make([]byte, 2000)
 
 	for {
 		n, addr, err := c.ReadFrom(packet)
 
 		if err != nil {
-			fmt.Println("error in accepting packets")
+			fmt.Println("error in accepting udp packets")
 		}
 		c.WriteTo(packet[:n], addr)
 		c.WriteTo([]byte(addr.String()), addr)
 	}
 }
 
-func handleTCP(tcp net.Listener) {
+func handleTCP(tcp net.Listener, wg sync.WaitGroup) {
+	if tcp == nil {
+		log.Print("Exiting tcp")
+		//wg.Done()
+		return
+	}
+
 	for {
 		conn, err := tcp.Accept()
 		if err != nil {
-			fmt.Println("error in accepting tcp package")
+			fmt.Println("error in accepting tcp conn")
 		} else {
 			go process(conn)
 		}
 	}
 }
 
-func handlePP(pp *proxyproto.Listener) {
+func handlePP(pp *proxyproto.Listener, wg sync.WaitGroup) {
+	if pp == nil {
+		log.Print("Exiting pp")
+		//wg.Done()
+		return
+	}
+
 	for {
 		conn, err := pp.Accept()
 		if err != nil {
-			fmt.Println("error in accepting proxy-proto tcp package")
+			fmt.Println("error in accepting proxy-proto conn")
 		} else {
 			go process(conn)
 		}
 	}
 }
 
-func handlePPTLS(tls *proxyproto.Listener) {
+func handleTCPTLS(tcptls net.Listener, wg sync.WaitGroup) {
+	if tcptls == nil {
+		log.Print("Exiting tcp tls")
+		//wg.Done()
+		return
+	}
+
+	for {
+		conn, err := tcptls.Accept()
+		if err != nil {
+			log.Print("handle tcp tls err", err)
+			continue
+		}
+		go handleTlsConnection(conn)
+	}
+}
+
+func handlePPTLS(tls *proxyproto.Listener, wg sync.WaitGroup) {
+	if tls == nil {
+		log.Print("Exiting pp tls")
+		//wg.Done()
+		return
+	}
+
 	for {
 		conn, err := tls.Accept()
 		if err != nil {
-			log.Print(err)
+			log.Print("handle pp tls err", err)
 			continue
 		}
 		go handleTlsConnection(conn)
@@ -170,27 +216,23 @@ func handleTlsConnection(clientConn net.Conn) {
 
 	clientHello, clientReader, err := peekClientHello(clientConn)
 	if err != nil {
-		log.Print(err)
+		log.Print("peek client hello err", err)
 		return
 	}
 
 	if err := clientConn.SetReadDeadline(time.Time{}); err != nil {
-		log.Print(err)
-		return
-	}
-
-	if !strings.HasSuffix(clientHello.ServerName, ".internal.example.com") {
-		log.Print("Blocking connection to unauthorized backend")
+		log.Print("set rea ddeadline err", err)
 		return
 	}
 
 	backendConn, err := net.DialTimeout("tcp", net.JoinHostPort(clientHello.ServerName, "443"), 5*time.Second)
 	if err != nil {
-		log.Print(err)
+		log.Print("dial timeout err", err)
 		return
 	}
 	defer backendConn.Close()
 
+	log.Print("proxy to >", clientHello.ServerName)
 	var wg sync.WaitGroup
 	wg.Add(2)
 
