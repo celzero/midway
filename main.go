@@ -26,13 +26,14 @@ func main() {
 		fmt.Println("server started on port 5000")
 	}
 
-	//setting up tls server
+	//setting up pp tls server
 	t, err := net.Listen("tcp", ":443")
 	if err != nil {
 		log.Fatal(err)
 	}
 	pptls := &proxyproto.Listener{Listener: t}
-
+        
+	//setting up tcp tls server
 	tcptls, err := net.Listen("tcp", ":4443")
 	if err != nil {
 		log.Fatal(err)
