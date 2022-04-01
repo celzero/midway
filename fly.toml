@@ -1,5 +1,3 @@
-# fly.toml file generated for withered-bird-2688 on 2022-03-09T17:58:44+05:30
-
 app = "withered-bird-2688"
 
 kill_signal = "SIGINT"
