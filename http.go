@@ -3,30 +3,8 @@ package main
 import (
 	"bufio"
 	"bytes"
-	"context"
 	"net/http"
 )
-
-func (p *Proxy) AddHTTPHostRoute(ipPort, httpHost string, dest Target) {
-	p.AddHTTPHostMatchRoute(ipPort, equals(httpHost), dest)
-}
-
-func (p *Proxy) AddHTTPHostMatchRoute(ipPort string, match Matcher, dest Target) {
-	p.addRoute(ipPort, httpHostMatch{match, dest})
-}
-
-type httpHostMatch struct {
-	matcher Matcher
-	target  Target
-}
-
-func (m httpHostMatch) match(br *bufio.Reader) (Target, string) {
-	hh := httpHostHeader(br)
-	if m.matcher(context.TODO(), hh) {
-		return m.target, hh
-	}
-	return nil, ""
-}
 
 func httpHostHeader(br *bufio.Reader) string {
 	const maxPeek = 4 << 10
