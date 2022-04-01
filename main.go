@@ -142,13 +142,14 @@ func proxyHTTPConn(c net.Conn) {
 	}
 
 	if n := br.Buffered(); n > 0 {
-		peeked, _ := br.Peek(br.Buffered())
+		peeked, _ := br.Peek(n)
 		wrappedconn := &Conn{
 			HostName: upstream,
 			Peeked:   peeked,
 			Conn:     c,
 		}
 		go forwardConn(wrappedconn)
+		return
 	}
 
 	// should never happen
@@ -220,12 +221,16 @@ func forwardConn(src net.Conn) {
 	}
 	defer dst.Close()
 
-	go proxyCopy(src, dst)
-	go proxyCopy(dst, src)
+	var wg &sync.WaitGroup{}
+	wg.Add(2)
+	go proxyCopy(src, dst, wg)
+	go proxyCopy(dst, src, wg)
+	wg.Wait()
 
 }
 
-func proxyCopy(dst, src net.Conn) {
+func proxyCopy(dst, src net.Conn, wg *sync.WaitGroup) {
+	defer wg.Done()
 	// Before we unwrap src and/or dst, copy any buffered data.
 	if wc, ok := src.(*Conn); ok && len(wc.Peeked) > 0 {
 		if _, err := dst.Write(wc.Peeked); err != nil {
