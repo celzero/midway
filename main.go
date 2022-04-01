@@ -208,17 +208,18 @@ func process(conn net.Conn) {
 
 //handling the connection
 func forwardConn(src net.Conn) {
+	defer src.Close()
 	c := src.(*Conn)
 	_, port, err := net.SplitHostPort(src.LocalAddr().String())
 
 	if err != nil {
-		log.Print("invalid forward port")
+		log.Println("invalid forward port")
 		return
 	}
 
 	dst, err := net.DialTimeout("tcp", net.JoinHostPort((c.HostName), port), 5*time.Second)
 	if err != nil {
-		log.Print("dial timeout err", err)
+		log.Printf("dial timeout err %v\n", err)
 		return
 	}
 	defer dst.Close()
