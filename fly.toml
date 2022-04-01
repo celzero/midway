@@ -49,4 +49,5 @@ processes = []
   protocol = "tcp"
 
   [[services.ports]]
+    handlers = ["proxy_proto"]
     port = "80"
