@@ -127,33 +127,33 @@ func handlePP(pp *proxyproto.Listener, wg sync.WaitGroup) {
 func proxyHTTPConn(c net.Conn) {
 	br := bufio.NewReader(c)
 
-	c1 := c
-	c2 := c
 	httpHostName := httpHostHeader(br)
+	sniServerName := clientHelloServerName(br)
+
+	var upstream string
+	if len(httpHostName) > 0 {
+		upstream = httpHostName
+	} else if len(sniServerName) > 0 {
+		upstream = sniServerName
+	} else {
+		fmt.Println("host/sni missing %s %s", httpHostName, sniServerName)
+		c.Close()
+		return
+	}
+
 	if n := br.Buffered(); n > 0 {
 		peeked, _ := br.Peek(br.Buffered())
-		c1 = &Conn{
-			HostName: httpHostName,
+		wrappedconn := &Conn{
+			HostName: upstream,
 			Peeked:   peeked,
-			Conn:     c1,
+			Conn:     c,
 		}
+		go forwardConn(wrappedconn)
 	}
 
-	if len(httpHostName) > 0 {
-		go forwardConn(c1)
-	} else {
-		sniServerName := clientHelloServerName(br)
-		if n := br.Buffered(); n > 0 {
-			peeked, _ := br.Peek(br.Buffered())
-			c2 = &Conn{
-				HostName: sniServerName,
-				Peeked:   peeked,
-				Conn:     c2,
-			}
-		}
-		go forwardConn(c2)
-	}
-
+	// should never happen
+	log.Println("buffer hasn't been peeked into...")
+	c.Close()
 }
 
 func proxyHTTP(tcptls net.Listener, wg sync.WaitGroup) {
