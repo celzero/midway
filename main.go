@@ -19,7 +19,7 @@ type Conn struct {
 }
 
 func main() {
-	var done &sync.WaitGroup{}
+	done := &sync.WaitGroup{}
 	done.Add(5)
 
 	t5000, err := net.Listen("tcp", ":5000")
@@ -36,7 +36,7 @@ func main() {
 		fmt.Println("started: tcp-server on port 443")
 	}
 	pp443 := &proxyproto.Listener{Listener: t443}
-        
+
 	//setting up tcp tls server
 	t80, err := net.Listen("tcp", ":80")
 	if err != nil {
@@ -56,7 +56,7 @@ func main() {
 
 	t5001, err := net.Listen("tcp", "0.0.0.0:5001")
 	if err != nil {
-		log.Fatalf("err tcp-sever on port 5001 %q\n", addr, err.Error())
+		log.Fatalf("err tcp-sever on port 5001 %q\n", err.Error())
 	}
 	pp5001 := &proxyproto.Listener{Listener: t5001} //converting tcp connection to proxy proto
 
@@ -210,7 +210,7 @@ func process(conn net.Conn) {
 func forwardConn(src net.Conn) {
 	c := src.(*Conn)
 	_, port, err := net.SplitHostPort(src.LocalAddr().String())
-	
+
 	if err != nil {
 		log.Print("invalid forward port")
 		return
@@ -223,7 +223,7 @@ func forwardConn(src net.Conn) {
 	}
 	defer dst.Close()
 
-	var wg &sync.WaitGroup{}
+	wg := &sync.WaitGroup{}
 	wg.Add(2)
 	go proxyCopy(src, dst, wg)
 	go proxyCopy(dst, src, wg)
@@ -245,7 +245,7 @@ func proxyCopy(dst, src net.Conn, wg *sync.WaitGroup) {
 	// 1.11's splice optimization kicks in.
 	src = UnderlyingConn(src)
 	dst = UnderlyingConn(dst)
-	
+
 	io.Copy(dst, src)
 }
 
