@@ -19,21 +19,21 @@ type Conn struct {
 }
 
 func main() {
-	var wg sync.WaitGroup
-	wg.Add(5)
-	port := 5000
-	// setting up tcp server
-	tcp, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	var done &sync.WaitGroup{}
+	done.Add(5)
+
+	t5000, err := net.Listen("tcp", ":5000")
 	if err != nil {
-		fmt.Println("error starting the tcp server")
+		log.Fatal(err)
 	} else {
-		fmt.Println("server started on port 5000")
+		fmt.Println("started: tcp-server on port 5000")
 	}
 
-	//setting up pp tls server
 	t443, err := net.Listen("tcp", ":443")
 	if err != nil {
 		log.Fatal(err)
+	} else {
+		fmt.Println("started: tcp-server on port 443")
 	}
 	pp443 := &proxyproto.Listener{Listener: t443}
         
@@ -41,38 +41,40 @@ func main() {
 	t80, err := net.Listen("tcp", ":80")
 	if err != nil {
 		log.Fatal(err)
+	} else {
+		fmt.Println("started: tcp-server on port 80")
 	}
 	pp80 := &proxyproto.Listener{Listener: t80}
 
 	// setting up udp server
-	udp, err := net.ListenPacket("udp", fmt.Sprintf("fly-global-services:%d", port))
+	u5000, err := net.ListenPacket("udp", "fly-global-services:5000")
 	if err != nil {
-		log.Printf("can't listen on %d/udp: %s", port, err)
+		log.Fatal(err)
+	} else {
+		fmt.Println("started: udp-server on port 5000")
 	}
 
-	// setting up proxy protocol
-	addr := "0.0.0.0:5001"
-	ln, err := net.Listen("tcp", addr)
+	t5001, err := net.Listen("tcp", "0.0.0.0:5001")
 	if err != nil {
-		log.Fatalf("couldn't listen to %q: %q\n", addr, err.Error())
+		log.Fatalf("err tcp-sever on port 5001 %q\n", addr, err.Error())
 	}
-	pp := &proxyproto.Listener{Listener: ln} //converting tcp connection to proxy proto
+	pp5001 := &proxyproto.Listener{Listener: t5001} //converting tcp connection to proxy proto
 
-	go handleUDP(udp, wg)
-	go handleTCP(tcp, wg)
-	go handlePP(pp, wg)
-	go proxyPPHTTP(pp443, wg)
-	go proxyPPHTTP(pp80, wg)
+	go handleUDP(u5000, done)
+	go handleTCP(t5000, done)
+	go handlePP(pp5001, done)
+	go proxyPPHTTP(pp443, done)
+	go proxyPPHTTP(pp80, done)
 
-	wg.Wait()
+	done.Wait()
 }
 
 //function start
 
-func handleUDP(c net.PacketConn, wg sync.WaitGroup) {
+func handleUDP(c net.PacketConn, wg *sync.WaitGroup) {
 	if c == nil {
 		log.Print("Exiting udp")
-		//wg.Done()
+		wg.Done()
 		return
 	}
 
@@ -89,10 +91,10 @@ func handleUDP(c net.PacketConn, wg sync.WaitGroup) {
 	}
 }
 
-func handleTCP(tcp net.Listener, wg sync.WaitGroup) {
+func handleTCP(tcp net.Listener, wg *sync.WaitGroup) {
 	if tcp == nil {
 		log.Print("Exiting tcp")
-		//wg.Done()
+		wg.Done()
 		return
 	}
 
@@ -106,10 +108,10 @@ func handleTCP(tcp net.Listener, wg sync.WaitGroup) {
 	}
 }
 
-func handlePP(pp *proxyproto.Listener, wg sync.WaitGroup) {
+func handlePP(pp *proxyproto.Listener, wg *sync.WaitGroup) {
 	if pp == nil {
 		log.Print("Exiting pp")
-		//wg.Done()
+		wg.Done()
 		return
 	}
 
@@ -157,10 +159,10 @@ func proxyHTTPConn(c net.Conn) {
 	c.Close()
 }
 
-func proxyHTTP(tcptls net.Listener, wg sync.WaitGroup) {
+func proxyHTTP(tcptls net.Listener, wg *sync.WaitGroup) {
 	if tcptls == nil {
 		log.Print("Exiting tcp tls")
-		//wg.Done()
+		wg.Done()
 		return
 	}
 
@@ -174,10 +176,10 @@ func proxyHTTP(tcptls net.Listener, wg sync.WaitGroup) {
 	}
 }
 
-func proxyPPHTTP(tls *proxyproto.Listener, wg sync.WaitGroup) {
+func proxyPPHTTP(tls *proxyproto.Listener, wg *sync.WaitGroup) {
 	if tls == nil {
 		log.Print("Exiting pp tls")
-		//wg.Done()
+		wg.Done()
 		return
 	}
 
