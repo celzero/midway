@@ -93,17 +93,18 @@ func main() {
 	}
 
 	//setting up pp tls server
-	t, err := net.Listen("tcp", ":443")
+	t443, err := net.Listen("tcp", ":443")
 	if err != nil {
 		log.Fatal(err)
 	}
-	pptls := &proxyproto.Listener{Listener: t}
+	pp443 := &proxyproto.Listener{Listener: t443}
         
 	//setting up tcp tls server
-	tcptls, err := net.Listen("tcp", ":4443")
+	t80, err := net.Listen("tcp", ":80")
 	if err != nil {
 		log.Fatal(err)
 	}
+	pp80 := &proxyproto.Listener{Listener: t80}
 
 	// setting up udp server
 	udp, err := net.ListenPacket("udp", fmt.Sprintf("fly-global-services:%d", port))
@@ -122,8 +123,8 @@ func main() {
 	go handleUDP(udp, wg)
 	go handleTCP(tcp, wg)
 	go handlePP(pp, wg)
-	go handlePPTLS(pptls, wg)
-	go handleTCPTLS(tcptls, wg)
+	go proxyPPHTTP(pp443, wg)
+	go proxyPPHTTP(pp80, wg)
 
 	wg.Wait()
 }
@@ -185,7 +186,7 @@ func handlePP(pp *proxyproto.Listener, wg sync.WaitGroup) {
 }
 
 //function for getting the hostname
-func serveConn(c net.Conn) {
+func proxyHTTPConn(c net.Conn) {
 	br := bufio.NewReader(c)
 
 	c1 := c
@@ -201,7 +202,7 @@ func serveConn(c net.Conn) {
 	}
 
 	if len(httpHostName) > 0 {
-		go HandleConn(c1, "80")
+		go forwardConn(c1)
 	} else {
 		sniServerName := clientHelloServerName(br)
 		if n := br.Buffered(); n > 0 {
@@ -212,12 +213,12 @@ func serveConn(c net.Conn) {
 				Conn:     c2,
 			}
 		}
-		go HandleConn(c2, "443")
+		go forwardConn(c2)
 	}
 
 }
 
-func handleTCPTLS(tcptls net.Listener, wg sync.WaitGroup) {
+func proxyHTTP(tcptls net.Listener, wg sync.WaitGroup) {
 	if tcptls == nil {
 		log.Print("Exiting tcp tls")
 		//wg.Done()
@@ -230,11 +231,11 @@ func handleTCPTLS(tcptls net.Listener, wg sync.WaitGroup) {
 			log.Print("handle tcp tls err", err)
 			continue
 		}
-		go serveConn(conn)
+		go proxyHTTPConn(conn)
 	}
 }
 
-func handlePPTLS(tls *proxyproto.Listener, wg sync.WaitGroup) {
+func proxyPPHTTP(tls *proxyproto.Listener, wg sync.WaitGroup) {
 	if tls == nil {
 		log.Print("Exiting pp tls")
 		//wg.Done()
@@ -247,7 +248,7 @@ func handlePPTLS(tls *proxyproto.Listener, wg sync.WaitGroup) {
 			log.Print("handle pp tls err", err)
 			continue
 		}
-		go serveConn(conn)
+		go proxyHTTPConn(conn)
 	}
 }
 
@@ -264,62 +265,15 @@ func process(conn net.Conn) {
 	fmt.Print(conn.RemoteAddr())
 }
 
-//peek function for tls
-
-func peekClientHello(reader io.Reader) (*tls.ClientHelloInfo, io.Reader, error) {
-	peekedBytes := new(bytes.Buffer)
-	hello, err := readClientHello(io.TeeReader(reader, peekedBytes))
-	if err != nil {
-		return nil, nil, err
-	}
-	return hello, io.MultiReader(peekedBytes, reader), nil
-}
-
-type readOnlyConn struct {
-	reader io.Reader
-}
-
-func (conn readOnlyConn) Read(p []byte) (int, error)         { return conn.reader.Read(p) }
-func (conn readOnlyConn) Write(p []byte) (int, error)        { return 0, io.ErrClosedPipe }
-func (conn readOnlyConn) Close() error                       { return nil }
-func (conn readOnlyConn) LocalAddr() net.Addr                { return nil }
-func (conn readOnlyConn) RemoteAddr() net.Addr               { return nil }
-func (conn readOnlyConn) SetDeadline(t time.Time) error      { return nil }
-func (conn readOnlyConn) SetReadDeadline(t time.Time) error  { return nil }
-func (conn readOnlyConn) SetWriteDeadline(t time.Time) error { return nil }
-
-func readClientHello(reader io.Reader) (*tls.ClientHelloInfo, error) {
-	var hello *tls.ClientHelloInfo
-
-	err := tls.Server(readOnlyConn{reader: reader}, &tls.Config{
-		GetConfigForClient: func(argHello *tls.ClientHelloInfo) (*tls.Config, error) {
-			hello = new(tls.ClientHelloInfo)
-			*hello = *argHello
-			return nil, nil
-		},
-	}).Handshake()
-
-	if hello == nil {
-		return nil, err
-	}
-
-	return hello, nil
-}
-
-var defaultDialer = new(net.Dialer)
-
-func (dp *DialProxy) dialContext() func(ctx context.Context, network, address string) (net.Conn, error) {
-	if dp.DialContext != nil {
-		return dp.DialContext
-	}
-	return defaultDialer.DialContext
-}
-
 //handling the connection
-func HandleConn(src net.Conn, port string) {
-	//ctx := context.Background()
-	//dst, _ := dp.dialContext()(ctx, "tcp", dp.Addr)
+func forwardConn(src net.Conn) {
 	c := src.(*Conn)
+	_, port, err := net.SplitHostPort(src.LocalAddr().String())
+	
+	if err != nil {
+		log.Print("invalid forward port")
+		return
+	}
 
 	dst, err := net.DialTimeout("tcp", net.JoinHostPort((c.HostName), port), 5*time.Second)
 	if err != nil {
@@ -355,48 +309,3 @@ func UnderlyingConn(c net.Conn) net.Conn {
 	return c
 }
 
-// //handling tls connection
-
-// func handleTlsConnection(clientConn net.Conn) {
-// 	defer clientConn.Close()
-
-// 	if err := clientConn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
-// 		log.Print(err)
-// 		return
-// 	}
-
-// 	clientHello, clientReader, err := peekClientHello(clientConn)
-// 	if err != nil || clientHello == nil || len(clientHello.ServerName) <= 0 {
-// 		log.Printf("peek client hello err %v %v %d", err, clientHello, len(clientHello.ServerName))
-// 		return
-// 	}
-
-// 	if err := clientConn.SetReadDeadline(time.Time{}); err != nil {
-// 		log.Print("set rea ddeadline err", err)
-// 		return
-// 	}
-
-// 	backendConn, err := net.DialTimeout("tcp", net.JoinHostPort(clientHello.ServerName, "443"), 5*time.Second)
-// 	if err != nil {
-// 		log.Print("dial timeout err", err)
-// 		return
-// 	}
-// 	defer backendConn.Close()
-
-// 	log.Print("proxy to >", clientHello.ServerName)
-// 	var wg sync.WaitGroup
-// 	wg.Add(2)
-
-// 	go func() {
-// 		io.Copy(clientConn, backendConn)
-// 		clientConn.(*net.TCPConn).CloseWrite()
-// 		wg.Done()
-// 	}()
-// 	go func() {
-// 		io.Copy(backendConn, clientReader)
-// 		backendConn.(*net.TCPConn).CloseWrite()
-// 		wg.Done()
-// 	}()
-
-// 	wg.Wait()
-// }
