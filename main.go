@@ -2,9 +2,7 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"context"
-	"crypto/tls"
 	"fmt"
 	"io"
 	"log"
@@ -15,69 +13,10 @@ import (
 	proxyproto "github.com/pires/go-proxyproto"
 )
 
-type Proxy struct {
-	configs map[string]*config // ip:port => config
-
-	lns        []net.Listener
-	donec      chan struct{} // closed before err
-	err        error         // any error from listening
-	ListenFunc func(net, laddr string) (net.Listener, error)
-}
-
-type Matcher func(ctx context.Context, hostname string) bool
-
-type Target interface {
-	HandleConn(net.Conn)
-}
-
-type DialProxy struct {
-	Addr                 string
-	KeepAlivePeriod      time.Duration
-	DialTimeout          time.Duration
-	DialContext          func(ctx context.Context, network, address string) (net.Conn, error)
-	OnDialError          func(src net.Conn, dstDialErr error)
-	ProxyProtocolVersion int
-}
-
 type Conn struct {
 	HostName string
 	Peeked   []byte
 	net.Conn
-}
-
-type fixedTarget struct {
-	t Target
-}
-
-type route interface {
-	match(*bufio.Reader) (Target, string)
-}
-
-type config struct {
-	routes      []route
-	acmeTargets []Target
-	stopACME    bool
-}
-
-func (p *Proxy) addRoute(ipPort string, r route) {
-	cfg := p.configFor(ipPort)
-	cfg.routes = append(cfg.routes, r)
-}
-
-func (p *Proxy) configFor(ipPort string) *config {
-	if p.configs == nil {
-		p.configs = make(map[string]*config)
-	}
-	if p.configs[ipPort] == nil {
-		p.configs[ipPort] = &config{}
-	}
-	return p.configs[ipPort]
-}
-
-func equals(want string) Matcher {
-	return func(_ context.Context, got string) bool {
-		return want == got
-	}
 }
 
 func main() {
@@ -300,6 +239,8 @@ func proxyCopy(dst, src net.Conn) {
 	// 1.11's splice optimization kicks in.
 	src = UnderlyingConn(src)
 	dst = UnderlyingConn(dst)
+	
+	io.Copy(dst, src)
 }
 
 func UnderlyingConn(c net.Conn) net.Conn {
