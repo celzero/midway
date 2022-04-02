@@ -37,6 +37,11 @@ processes = []
   internal_port = 443
   protocol = "tcp"
 
+  [services.concurrency]
+  hard_limit = 128
+  soft_limit = 64
+  type = "connections"
+
   [[services.ports]]
     handlers = ["proxy_proto"]
     port = "443"
@@ -45,6 +50,11 @@ processes = []
 [[services]]
   internal_port = 80
   protocol = "tcp"
+
+  [services.concurrency]
+  hard_limit = 128
+  soft_limit = 64
+  type = "connections"
 
   [[services.ports]]
     handlers = ["proxy_proto"]
