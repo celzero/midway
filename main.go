@@ -62,8 +62,8 @@ func main() {
 	go echoUDP(u5000, done)
 	go echoTCP(t5000, done)
 	go echoPP(pp5001, done)
-	go proxyPPHTTP(pp443, done)
-	go proxyPPHTTP(pp80, done)
+	go startPP(pp443, done)
+	go startPP(pp80, done)
 
 	done.Wait()
 }
@@ -86,6 +86,7 @@ func proxyHTTPConn(c net.Conn) {
 		return
 	}
 
+	// FIXME: Sanitize hostname, shouldn't be site-local, for ex
 	if n := br.Buffered(); n > 0 {
 		peeked, _ := br.Peek(n)
 		wrappedconn := &Conn{
@@ -103,7 +104,7 @@ func proxyHTTPConn(c net.Conn) {
 	c.Close()
 }
 
-func proxyHTTP(tcptls net.Listener, wg *sync.WaitGroup) {
+func startTCP(tcptls net.Listener, wg *sync.WaitGroup) {
 	if tcptls == nil {
 		log.Print("Exiting tcp tls")
 		wg.Done()
@@ -120,7 +121,7 @@ func proxyHTTP(tcptls net.Listener, wg *sync.WaitGroup) {
 	}
 }
 
-func proxyPPHTTP(tls *proxyproto.Listener, wg *sync.WaitGroup) {
+func startPP(tls *proxyproto.Listener, wg *sync.WaitGroup) {
 	if tls == nil {
 		log.Print("Exiting pp tls")
 		wg.Done()
