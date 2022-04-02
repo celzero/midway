@@ -38,8 +38,8 @@ processes = []
   protocol = "tcp"
 
   [services.concurrency]
-  hard_limit = 256
-  soft_limit = 128
+  hard_limit = 4096
+  soft_limit = 2048
   type = "connections"
 
   [[services.tcp_checks]]
@@ -58,8 +58,8 @@ processes = []
   protocol = "tcp"
 
   [services.concurrency]
-  hard_limit = 256
-  soft_limit = 128
+  hard_limit = 4096
+  soft_limit = 2048
   type = "connections"
 
   [[services.tcp_checks]]
