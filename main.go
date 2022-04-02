@@ -80,7 +80,7 @@ func proxyHTTPConn(c net.Conn) {
 	} else if len(sniServerName) > 0 {
 		upstream = sniServerName
 	} else {
-		fmt.Println("host/sni missing %s %s", httpHostName, sniServerName)
+		fmt.Printf("host/sni missing %s %s\n", c.LocalAddr(), c.RemoteAddr())
 		c.Close()
 		return
 	}
