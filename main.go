@@ -81,6 +81,7 @@ func proxyHTTPConn(c net.Conn) {
 		upstream = sniServerName
 	} else {
 		fmt.Printf("host/sni missing %s %s\n", c.LocalAddr(), c.RemoteAddr())
+		time.Sleep(time.Second * 30)
 		c.Close()
 		return
 	}
@@ -98,6 +99,7 @@ func proxyHTTPConn(c net.Conn) {
 
 	// should never happen
 	log.Println("buffer hasn't been peeked into...")
+	time.Sleep(time.Second * 30)
 	c.Close()
 }
 
