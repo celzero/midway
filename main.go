@@ -11,11 +11,15 @@ import (
 	"io"
 	"log"
 	"net"
+	"net/netip"
 	"sync"
 	"time"
 
 	proxyproto "github.com/pires/go-proxyproto"
 )
+
+const conntimeout = time.Second * 5
+const noproxytimeout = time.Second * 20
 
 func main() {
 	done := &sync.WaitGroup{}
@@ -68,42 +72,6 @@ func main() {
 	done.Wait()
 }
 
-func proxyHTTPConn(c net.Conn) {
-	br := bufio.NewReader(c)
-
-	httpHostName := httpHostHeader(br)
-	sniServerName := clientHelloServerName(br)
-
-	var upstream string
-	if len(httpHostName) > 0 {
-		upstream = httpHostName
-	} else if len(sniServerName) > 0 {
-		upstream = sniServerName
-	} else {
-		fmt.Printf("host/sni missing %s %s\n", c.LocalAddr(), c.RemoteAddr())
-		time.Sleep(time.Second * 30)
-		c.Close()
-		return
-	}
-
-	// FIXME: Sanitize hostname, shouldn't be site-local, for ex
-	if n := br.Buffered(); n > 0 {
-		peeked, _ := br.Peek(n)
-		wrappedconn := &Conn{
-			HostName: upstream,
-			Peeked:   peeked,
-			Conn:     c,
-		}
-		go forwardConn(wrappedconn)
-		return
-	}
-
-	// should never happen
-	log.Println("buffer hasn't been peeked into...")
-	time.Sleep(time.Second * 30)
-	c.Close()
-}
-
 func startTCP(tcptls net.Listener, wg *sync.WaitGroup) {
 	if tcptls == nil {
 		log.Print("Exiting tcp tls")
@@ -138,9 +106,62 @@ func startPP(tls *proxyproto.Listener, wg *sync.WaitGroup) {
 	}
 }
 
+func proxyHTTPConn(c net.Conn) {
+	defer c.Close()
+
+	// TODO: discard health-checks conns appear from fly-edge w.x.y.z
+	// 19:49 [info] host/sni missing 172.19.0.170:443 103.x.y.z:38862
+	// 20:07 [info] host/sni missing 172.19.0.170:80 w.254.y.z:49008
+	// 20:19 [info] host/sni missing 172.19.0.170:443 w.x.161.z:42676
+	// 20:37 [info] host/sni missing 172.19.0.170:80 w.x.y.146:52548
+	if y := discardConn(c); y {
+		time.Sleep(noproxytimeout)
+		return
+	}
+
+	br := bufio.NewReader(c)
+
+	httpHostName := httpHostHeader(br)
+	sniServerName := clientHelloServerName(br)
+
+	var upstream string
+	if len(httpHostName) > 0 {
+		upstream = httpHostName
+	} else if len(sniServerName) > 0 {
+		upstream = sniServerName
+	} else {
+		fmt.Printf("host/sni missing %s %s\n", c.LocalAddr(), c.RemoteAddr())
+		time.Sleep(noproxytimeout)
+		return
+	}
+
+	if n := br.Buffered(); n <= 0 {
+		// should never happen
+		log.Println("buffer hasn't been peeked into...")
+		time.Sleep(noproxytimeout)
+		return
+	}
+
+	// FIXME: Sanitize hostname, shouldn't be site-local, for ex
+	cdone := &sync.WaitGroup{}
+	cdone.Add(1)
+	peeked, _ := br.Peek(br.Buffered())
+	wrappedconn := &Conn{
+		HostName: upstream,
+		Peeked:   peeked,
+		Conn:     c,
+		ConnDone: cdone,
+	}
+	go forwardConn(wrappedconn)
+	cdone.Wait()
+	return
+}
+
 func forwardConn(src net.Conn) {
-	defer src.Close()
 	c := src.(*Conn)
+
+	defer c.ConnDone.Done()
+
 	_, port, err := net.SplitHostPort(src.LocalAddr().String())
 
 	if err != nil {
@@ -148,18 +169,23 @@ func forwardConn(src net.Conn) {
 		return
 	}
 
-	dst, err := net.DialTimeout("tcp", net.JoinHostPort((c.HostName), port), 5*time.Second)
+	dst, err := net.DialTimeout("tcp", net.JoinHostPort((c.HostName), port), conntimeout)
 	if err != nil {
 		log.Printf("dial timeout err %v\n", err)
 		return
 	}
 	defer dst.Close()
 
-	wg := &sync.WaitGroup{}
-	wg.Add(2)
-	go proxyCopy(src, dst, wg)
-	go proxyCopy(dst, src, wg)
-	wg.Wait()
+	if y := discardConn(dst); y {
+		time.Sleep(noproxytimeout)
+		return
+	}
+
+	pwg := &sync.WaitGroup{}
+	pwg.Add(2)
+	go proxyCopy(src, dst, pwg)
+	go proxyCopy(dst, src, pwg)
+	pwg.Wait()
 
 }
 
@@ -175,19 +201,34 @@ func proxyCopy(dst, src net.Conn, wg *sync.WaitGroup) {
 
 	// Unwrap the src and dst from *Conn to *net.TCPConn so Go
 	// 1.11's splice optimization kicks in.
-	src = UnderlyingConn(src)
-	dst = UnderlyingConn(dst)
+	src = underlyingConn(src)
+	dst = underlyingConn(dst)
 
-	io.Copy(dst, src)
+	if n, err := io.Copy(dst, src); err == nil {
+		log.Printf("%s -> %s bytes: %d", src.RemoteAddr(), dst.RemoteAddr(), n)
+	}
+}
+
+func discardConn(c net.Conn) bool {
+	ip, err := netip.ParseAddr(c.RemoteAddr().String())
+	if err != nil {
+		log.Println(err)
+		return true
+	}
+	if ip.IsPrivate() || !ip.IsValid() || ip.IsUnspecified() {
+		return true
+	}
+	return false
 }
 
 type Conn struct {
 	HostName string
 	Peeked   []byte
+	ConnDone *sync.WaitGroup
 	net.Conn
 }
 
-func UnderlyingConn(c net.Conn) net.Conn {
+func underlyingConn(c net.Conn) net.Conn {
 	if wrap, ok := c.(*Conn); ok {
 		return wrap.Conn
 	}
