@@ -7,6 +7,7 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -16,14 +17,15 @@ import (
 )
 
 // mtu on fly is 1420
-const mtu = 1600
+const mtu = 1420
 // runtime.NumCPU() instead?
 const udproutines = 4
 
 func echoUDP(c net.PacketConn, wg *sync.WaitGroup) {
+	defer wg.Done()
+
 	if c == nil {
 		log.Println("Exiting udp")
-		wg.Done()
 		return
 	}
 
@@ -37,14 +39,19 @@ func echoUDP(c net.PacketConn, wg *sync.WaitGroup) {
 }
 
 func processudp(c net.PacketConn, uwg *sync.WaitGroup) {
+	defer uwg.Done()
+
 	packet := make([]byte, mtu)
 	for {
 		n, raddr, err := c.ReadFrom(packet)
 
 		if err != nil {
-			fmt.Println("exit, err accepting udp packets")
-			uwg.Done()
-			return
+			fmt.Println("err accepting udp packets")
+			if errors.Is(err, net.ErrClosed) {
+				log.Print(err)
+				return
+			}
+			continue
 		}
 
 		log.Println("umsg: " + string(packet[:n]) + " / by: " + raddr.String())
@@ -55,9 +62,10 @@ func processudp(c net.PacketConn, uwg *sync.WaitGroup) {
 }
 
 func echoTCP(tcp net.Listener, wg *sync.WaitGroup) {
+	defer wg.Done()
+
 	if tcp == nil {
 		log.Println("Exiting tcp")
-		wg.Done()
 		return
 	}
 
@@ -65,16 +73,21 @@ func echoTCP(tcp net.Listener, wg *sync.WaitGroup) {
 		conn, err := tcp.Accept()
 		if err != nil {
 			fmt.Println("err accepting tcp conn")
-		} else {
-			go processtcp(conn)
+			if errors.Is(err, net.ErrClosed) {
+				log.Print(err)
+				return
+			}
+			continue
 		}
+		go processtcp(conn)
 	}
 }
 
 func echoPP(pp *proxyproto.Listener, wg *sync.WaitGroup) {
+	defer wg.Done()
+
 	if pp == nil {
 		log.Println("Exiting pp")
-		wg.Done()
 		return
 	}
 
@@ -82,9 +95,13 @@ func echoPP(pp *proxyproto.Listener, wg *sync.WaitGroup) {
 		conn, err := pp.Accept()
 		if err != nil {
 			fmt.Println("err accepting proxy-proto conn")
-		} else {
-			go processtcp(conn)
+			if errors.Is(err, net.ErrClosed) {
+				log.Print(err)
+				return
+			}
+			continue
 		}
+		go processtcp(conn)
 	}
 }
 

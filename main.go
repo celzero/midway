@@ -7,6 +7,7 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -21,6 +22,7 @@ import (
 const conntimeout = time.Second * 5
 const noproxytimeout = time.Second * 20
 
+// ref: fly.io/docs/app-guides/udp-and-tcp/
 func main() {
 	done := &sync.WaitGroup{}
 	done.Add(5)
@@ -72,34 +74,45 @@ func main() {
 	done.Wait()
 }
 
-func startTCP(tcptls net.Listener, wg *sync.WaitGroup) {
-	if tcptls == nil {
-		log.Print("Exiting tcp tls")
-		wg.Done()
+func startTCP(tcp net.Listener, wg *sync.WaitGroup) {
+	defer wg.Done()
+
+	if tcp == nil {
+		log.Print("Exiting tcp")
 		return
 	}
 
 	for {
-		conn, err := tcptls.Accept()
+		conn, err := tcp.Accept()
 		if err != nil {
-			log.Print("handle tcp tls err", err)
+			log.Print("handle tcp err", err)
+			if errors.Is(err, net.ErrClosed) {
+				// unrecoverable err
+				log.Print(err)
+				return
+			}
 			continue
 		}
 		go proxyHTTPConn(conn)
 	}
 }
 
-func startPP(tls *proxyproto.Listener, wg *sync.WaitGroup) {
-	if tls == nil {
-		log.Print("Exiting pp tls")
-		wg.Done()
+func startPP(tcp *proxyproto.Listener, wg *sync.WaitGroup) {
+	defer wg.Done()
+
+	if tcp == nil {
+		log.Print("Exiting pp tcp")
 		return
 	}
 
 	for {
-		conn, err := tls.Accept()
+		conn, err := tcp.Accept()
 		if err != nil {
-			log.Print("handle pp tls err", err)
+			log.Print("handle pp tcp err")
+			if errors.Is(err, net.ErrClosed) {
+				log.Print(err)
+				return
+			}
 			continue
 		}
 		go proxyHTTPConn(conn)
@@ -208,7 +221,11 @@ func proxyCopy(label string, dst, src net.Conn, wg *sync.WaitGroup) {
 	dst = underlyingConn(dst)
 
 	if n, err := io.Copy(dst, src); err == nil {
-		log.Printf("%s: %s -> %s bytes: %d", label, src.RemoteAddr(), dst.RemoteAddr(), n)
+		from := src.RemoteAddr()
+		to := dst.RemoteAddr()
+		leg := src.LocalAddr()
+		returnleg := dst.LocalAddr()
+		log.Printf("%s: %s -> %s via (%s and %s); tx: %d", label, from, to, leg, returnleg, n)
 	}
 }
 
