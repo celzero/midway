@@ -169,6 +169,9 @@ func forwardConn(src net.Conn) {
 		return
 	}
 
+	// proxy src:local-ip4 to dst:remote-ip4 / src:local-ip6 to dst:remote-ip6
+	typ := src.LocalAddr().Network()
+	log.Println("dailing %s from %s => %s via %s", typ, src.RemoteAddr(), c.HostName, src.LocalAddr())
 	dst, err := net.DialTimeout("tcp", net.JoinHostPort((c.HostName), port), conntimeout)
 	if err != nil {
 		log.Printf("dial timeout err %v\n", err)
@@ -183,13 +186,13 @@ func forwardConn(src net.Conn) {
 
 	pwg := &sync.WaitGroup{}
 	pwg.Add(2)
-	go proxyCopy(src, dst, pwg)
-	go proxyCopy(dst, src, pwg)
+	go proxyCopy("download", src, dst, pwg)
+	go proxyCopy("upload", dst, src, pwg)
 	pwg.Wait()
 
 }
 
-func proxyCopy(dst, src net.Conn, wg *sync.WaitGroup) {
+func proxyCopy(label string, dst, src net.Conn, wg *sync.WaitGroup) {
 	defer wg.Done()
 	// Before we unwrap src and/or dst, copy any buffered data.
 	if wc, ok := src.(*Conn); ok && len(wc.Peeked) > 0 {
@@ -205,7 +208,7 @@ func proxyCopy(dst, src net.Conn, wg *sync.WaitGroup) {
 	dst = underlyingConn(dst)
 
 	if n, err := io.Copy(dst, src); err == nil {
-		log.Printf("%s -> %s bytes: %d", src.RemoteAddr(), dst.RemoteAddr(), n)
+		log.Printf("%s: %s -> %s bytes: %d", label, src.RemoteAddr(), dst.RemoteAddr(), n)
 	}
 }
 
