@@ -1,5 +1,5 @@
 # build
-FROM golang:1.17-alpine AS builder
+FROM golang:1.18-alpine AS builder
 
 RUN     mkdir /app
 WORKDIR /app

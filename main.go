@@ -210,12 +210,13 @@ func proxyCopy(dst, src net.Conn, wg *sync.WaitGroup) {
 }
 
 func discardConn(c net.Conn) bool {
-	ip, err := netip.ParseAddr(c.RemoteAddr().String())
+	ipportaddr, err := netip.ParseAddrPort(c.RemoteAddr().String())
 	if err != nil {
 		log.Println(err)
 		return true
 	}
-	if ip.IsPrivate() || !ip.IsValid() || ip.IsUnspecified() {
+	ipaddr := ipportaddr.Addr()
+	if ipaddr.IsPrivate() || !ipaddr.IsValid() || ipaddr.IsUnspecified() {
 		return true
 	}
 	return false
