@@ -184,7 +184,7 @@ func forwardConn(src net.Conn) {
 
 	// proxy src:local-ip4 to dst:remote-ip4 / src:local-ip6 to dst:remote-ip6
 	typ := src.LocalAddr().Network()
-	log.Println("dailing %s from %s => %s via %s", typ, src.RemoteAddr(), c.HostName, src.LocalAddr())
+	log.Printf("dailing %s from %s => %s via %s", typ, src.RemoteAddr(), c.HostName, src.LocalAddr())
 	dst, err := net.DialTimeout("tcp", net.JoinHostPort((c.HostName), port), conntimeout)
 	if err != nil {
 		log.Printf("dial timeout err %v\n", err)
