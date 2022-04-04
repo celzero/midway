@@ -22,7 +22,7 @@ import (
 const conntimeout = time.Second * 5
 const noproxytimeout = time.Second * 20
 
-// ref: fly.io/docs/app-guides/udp-and-tcp/
+// Adopted from: github.com/inetaf/tcpproxy/blob/be3ee21/tcpproxy.go
 func main() {
 	done := &sync.WaitGroup{}
 	done.Add(5)
@@ -41,6 +41,7 @@ func main() {
 	fmt.Println("started: pptcp-server on port 80")
 	pp80 := &proxyproto.Listener{Listener: t80}
 
+	// ref: fly.io/docs/app-guides/udp-and-tcp/
 	u5000, err := net.ListenPacket("udp", "fly-global-services:5000")
 	if err != nil {
 		log.Println(err)
@@ -83,17 +84,16 @@ func startTCP(tcp net.Listener, wg *sync.WaitGroup) {
 	}
 
 	for {
-		conn, err := tcp.Accept()
-		if err != nil {
+		if conn, err := tcp.Accept(); err == nil {
+			go proxyHTTPConn(conn)
+		} else {
 			log.Print("handle tcp err", err)
 			if errors.Is(err, net.ErrClosed) {
 				// unrecoverable err
 				log.Print(err)
 				return
 			}
-			continue
 		}
-		go proxyHTTPConn(conn)
 	}
 }
 
@@ -106,16 +106,15 @@ func startPP(tcp *proxyproto.Listener, wg *sync.WaitGroup) {
 	}
 
 	for {
-		conn, err := tcp.Accept()
-		if err != nil {
+		if conn, err := tcp.Accept(); err == nil {
+			go proxyHTTPConn(conn)
+		} else {
 			log.Print("handle pp tcp err")
 			if errors.Is(err, net.ErrClosed) {
 				log.Print(err)
 				return
 			}
-			continue
 		}
-		go proxyHTTPConn(conn)
 	}
 }
 
@@ -148,25 +147,21 @@ func proxyHTTPConn(c net.Conn) {
 		return
 	}
 
-	if n := br.Buffered(); n <= 0 {
-		// should never happen
-		log.Println("buffer hasn't been peeked into...")
-		time.Sleep(noproxytimeout)
-		return
-	}
-
-	// FIXME: Sanitize hostname, shouldn't be site-local, for ex
 	cdone := &sync.WaitGroup{}
 	cdone.Add(1)
 	peeked, _ := br.Peek(br.Buffered())
+
 	wrappedconn := &Conn{
+		// FIXME: Sanitize hostname, shouldn't be site-local, for ex?
 		HostName: upstream,
 		Peeked:   peeked,
 		Conn:     c,
 		ConnDone: cdone,
 	}
+
 	go forwardConn(wrappedconn)
 	cdone.Wait()
+
 	return
 }
 
@@ -183,9 +178,9 @@ func forwardConn(src net.Conn) {
 	}
 
 	// proxy src:local-ip4 to dst:remote-ip4 / src:local-ip6 to dst:remote-ip6
-	typ := src.LocalAddr().Network()
+	typ, _ := tcp4or6(src.LocalAddr())
 	log.Printf("dailing %s from %s => %s via %s", typ, src.RemoteAddr(), c.HostName, src.LocalAddr())
-	dst, err := net.DialTimeout("tcp", net.JoinHostPort((c.HostName), port), conntimeout)
+	dst, err := net.DialTimeout(typ, net.JoinHostPort((c.HostName), port), conntimeout)
 	if err != nil {
 		log.Printf("dial timeout err %v\n", err)
 		return
@@ -207,6 +202,7 @@ func forwardConn(src net.Conn) {
 
 func proxyCopy(label string, dst, src net.Conn, wg *sync.WaitGroup) {
 	defer wg.Done()
+
 	// Before we unwrap src and/or dst, copy any buffered data.
 	if wc, ok := src.(*Conn); ok && len(wc.Peeked) > 0 {
 		if _, err := dst.Write(wc.Peeked); err != nil {
@@ -225,7 +221,9 @@ func proxyCopy(label string, dst, src net.Conn, wg *sync.WaitGroup) {
 		to := dst.RemoteAddr()
 		leg := src.LocalAddr()
 		returnleg := dst.LocalAddr()
-		log.Printf("%s: %s -> %s via (%s and %s); tx: %d", label, from, to, leg, returnleg, n)
+		log.Printf("%s: (src) %s -> (dst) %s via (src %s and dst %s); tx: %d", label, from, to, leg, returnleg, n)
+	} else {
+		log.Print(err)
 	}
 }
 
@@ -235,11 +233,24 @@ func discardConn(c net.Conn) bool {
 		log.Println(err)
 		return true
 	}
+
 	ipaddr := ipportaddr.Addr()
 	if ipaddr.IsPrivate() || !ipaddr.IsValid() || ipaddr.IsUnspecified() {
 		return true
 	}
 	return false
+}
+
+func tcp4or6(a net.Addr) (string, error) {
+	if addrport, err := netip.ParseAddrPort(a.String()); err == nil {
+		if addrport.Addr().Is6() || addrport.Addr().Is4In6() {
+			return "tcp6", nil
+		} else {
+			return "tcp4", nil
+		}
+	} else {
+		return "", err
+	}
 }
 
 type Conn struct {

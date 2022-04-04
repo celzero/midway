@@ -70,16 +70,15 @@ func echoTCP(tcp net.Listener, wg *sync.WaitGroup) {
 	}
 
 	for {
-		conn, err := tcp.Accept()
-		if err != nil {
+		if conn, err := tcp.Accept(); err == nil {
+			go processtcp(conn)
+		} else {
 			fmt.Println("err accepting tcp conn")
 			if errors.Is(err, net.ErrClosed) {
 				log.Print(err)
 				return
 			}
-			continue
 		}
-		go processtcp(conn)
 	}
 }
 
@@ -92,22 +91,22 @@ func echoPP(pp *proxyproto.Listener, wg *sync.WaitGroup) {
 	}
 
 	for {
-		conn, err := pp.Accept()
-		if err != nil {
+		if conn, err := pp.Accept(); err == nil {
+			go processtcp(conn)
+		} else {
 			fmt.Println("err accepting proxy-proto conn")
 			if errors.Is(err, net.ErrClosed) {
 				log.Print(err)
 				return
 			}
-			continue
 		}
-		go processtcp(conn)
 	}
 }
 
 
 func processtcp(c net.Conn) {
 	defer c.Close()
+
 	line, _ := bufio.NewReader(c).ReadString('\n')
 	log.Println("tmsg: " + string(line) + " / by: " + c.RemoteAddr().String())
 	// echo msg and rip back
