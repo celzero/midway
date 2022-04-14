@@ -16,8 +16,14 @@ jobs:
         - name: Checkout
           uses: actions/checkout@v2
 
+          # experimental: github.com/superfly/flyctl-actions/pull/20
         - name: 🚢 Ship
-          uses: superfly/flyctl-actions@1.3
+          uses: superfly/flyctl-actions/setup-flyctl@master
           with:
-            args: |
-              "deploy --strategy immediate"
+            version: latest
+            args: "flyctl deploy
+                --app $FLY_APP
+                --remote-only
+                --strategy rolling
+                --verbose
+                "
