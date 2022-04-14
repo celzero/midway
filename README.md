@@ -14,13 +14,15 @@ DoH endpoint to a stub resolver that returns midway's IP for all DNS queries.
 
 Try midway with curl, like so:
 
-```
+```bash
 # TLS with SNI on port 443
 curl https://www.example.com --resolve 'www.example.com:443:<midway-ip>' -v
 * Added www.example.com:443:<midway-ip> to DNS cache
 * Uses proxy env variable no_proxy == 'localhost,127.0.0.0/8,::1'
 * Hostname www.example.com was found in DNS cache
-# this line from curl is a confirmation that the traffic routed to midway:
+#
+# this next log line is a confirmation that the traffic was routd to midway:
+#
 *   Trying <midway-ip>:443...
 * TCP_NODELAY set
 * Connected to www.example.com (<midway-ip>) port 443 (#0)
@@ -28,6 +30,24 @@ curl https://www.example.com --resolve 'www.example.com:443:<midway-ip>' -v
 
 # Host header with HTTP 1.x on port 80
 curl abcxyz.neverssl.com --resolve 'abcxyz.neverssl.com:80:<midway-ip>' -v
+```
+
+### DNS
+midway runs DoT and DoH stub resolver on ports 443 and 853 (or 8443 and 8853 in
+non-previledge mode), forwarding queries to `UPSTREAM_DOH` env var (The Google
+Public Resolver is the default). `TLS_CN` env var must also be set matching
+the SNI (server name identification) of the DoH / DoT endpoint's TLS cert.
+Cert can be ethier supplied through the filesystem by setting env vars,
+`TLS_CERT_PATH` and `TLS_KEY_PATH`, or by base64 encoding the contents of
+key and cert into env var with the same name as `TLS_CN` but in uppercase and
+periods (`.`) replaced by underscores (`_`), like so:
+
+Test certs for DNS over TLS and DNS over HTTPS is in `/test/certs/` generated
+via openssl ([ref](https://github.com/denji/golang-tls))
+
+```bash
+TLS_CN = "example.domain.tld"
+EXAMPLE_DOMAIN_TLD = "KEY=b64(key-contents)\nCRT=b64(cert-contents)"
 ```
 
 ### A note on HTTP/3 and QUIC

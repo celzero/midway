@@ -18,6 +18,7 @@ import (
 
 // mtu on fly is 1420
 const mtu = 1420
+
 // runtime.NumCPU() instead?
 const udproutines = 4
 
@@ -69,6 +70,8 @@ func echoTCP(tcp net.Listener, wg *sync.WaitGroup) {
 		return
 	}
 
+	defer tcp.Close()
+
 	for {
 		if conn, err := tcp.Accept(); err == nil {
 			go processtcp(conn)
@@ -90,6 +93,8 @@ func echoPP(pp *proxyproto.Listener, wg *sync.WaitGroup) {
 		return
 	}
 
+	defer pp.Close()
+
 	for {
 		if conn, err := pp.Accept(); err == nil {
 			go processtcp(conn)
@@ -103,7 +108,6 @@ func echoPP(pp *proxyproto.Listener, wg *sync.WaitGroup) {
 	}
 }
 
-
 func processtcp(c net.Conn) {
 	defer c.Close()
 
@@ -113,4 +117,3 @@ func processtcp(c net.Conn) {
 	fmt.Fprint(c, line)
 	fmt.Fprint(c, c.RemoteAddr())
 }
-

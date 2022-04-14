@@ -1,16 +1,24 @@
-app = "withered-bird-2688"
+app = ""
 
 kill_signal = "SIGINT"
 kill_timeout = 5
 processes = []
 
 [env]
-  ECHO_PORT = 5000
+  CONN_TIMEOUT_SEC = "5"
+  NOPROXY_TIMEOUT_SEC = "20"
+  MAX_INFLIGHT_DNS_QUERIES = 1024
+  UPSTREAM_DOH = "https://dns.google/dns-query"
+  TLS_CERT_PATH = "./test/certs/server.crt"
+  TLS_KEY_PATH = "./test/certs/server.key"
+  TLS_CN = "sub.domain.invalid"
+  SUB_DOMAIN_INVALID = "key=b64(server.key)\ncrt=b64(server.crt)"
 
 [experimental]
   allowed_public_ports = []
   auto_rollback = true
 
+# echo tcp/udp svc on 5xxx
 [[services]]
   internal_port = 5000
   protocol = "udp"
@@ -33,6 +41,7 @@ processes = []
     handlers = ["proxy_proto"]
     port = "5001"
 
+# proxifier and doh svc on 80, 443
 [[services]]
   internal_port = 443
   protocol = "tcp"
@@ -52,7 +61,6 @@ processes = []
     handlers = ["proxy_proto"]
     port = "443"
 
-
 [[services]]
   internal_port = 80
   protocol = "tcp"
@@ -71,3 +79,23 @@ processes = []
   [[services.ports]]
     handlers = ["proxy_proto"]
     port = "80"
+
+# dot svc on port 853
+[[services]]
+  internal_port = 853
+  protocol = "tcp"
+
+  [services.concurrency]
+  hard_limit = 512
+  soft_limit = 256
+  type = "connections"
+
+  [[services.tcp_checks]]
+  grace_period = "5s"
+  interval = "30s"
+  restart_limit = 6
+  timeout = "3s"
+
+  [[services.ports]]
+    handlers = ["proxy_proto"]
+    port = "853"
