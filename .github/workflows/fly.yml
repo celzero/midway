@@ -1,27 +1,30 @@
-name: Fly Deploy
+name: 🪂 Fly Deploy
 on:
   push:
     branches:
        - "main"
   workflow_dispatch:
+
 env:
   FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
   FLY_APP: ${{ secrets.FLY_APP_NAME }}
 
 jobs:
   deploy:
-      name: Deploy app
+      name: 🚀 Deploy app
       runs-on: ubuntu-latest
       steps:
-        - name: Checkout
+        - name: 🚚 Checkout
           uses: actions/checkout@v2
 
           # experimental: github.com/superfly/flyctl-actions/pull/20
-        - name: 🚢 Ship
+        - name: 🏗 Setup flyctl @ latest
           uses: superfly/flyctl-actions/setup-flyctl@master
           with:
             version: latest
-            args: "flyctl deploy
+
+        - name: 🚢 Ship
+          run: "flyctl deploy
                 --app $FLY_APP
                 --remote-only
                 --strategy rolling
