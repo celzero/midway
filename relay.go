@@ -23,6 +23,7 @@ func forwardConn(src *Conn) {
 	// 20:19 [info] host/sni missing 172.19.0.170:443 w.x.161.z:42676
 	// 20:37 [info] host/sni missing 172.19.0.170:80 w.x.y.146:52548
 	if discardConn(src) {
+		log.Print("relay: drop conn to ", src.RemoteAddr().String())
 		time.Sleep(noproxytimeout)
 		return
 	}
@@ -30,21 +31,22 @@ func forwardConn(src *Conn) {
 	log.Printf("relay: %s from %s => %s via %s", src.Typ, src.RemoteAddr(), src.HostName, src.LocalAddr())
 	dst, err := net.DialTimeout(src.Typ, net.JoinHostPort((src.HostName), src.Port), conntimeout)
 	if err != nil {
-		log.Printf("dial timeout err %v\n", err)
+		log.Printf("relay: dial timeout err %v\n", err)
 		return
 	}
 
 	defer dst.Close()
 
 	if discardConn(dst) {
+		log.Print("relay: drop conn to ", dst.RemoteAddr().String())
 		time.Sleep(noproxytimeout)
 		return
 	}
 
 	pwg := &sync.WaitGroup{}
 	pwg.Add(2)
-	go proxyCopy("download", src, dst, pwg)
-	go proxyCopy("upload", dst, src, pwg)
+	go proxyCopy("relay: download", src, dst, pwg)
+	go proxyCopy("relay: upload", dst, src, pwg)
 	pwg.Wait()
 }
 
@@ -54,6 +56,7 @@ func proxyCopy(label string, dst, src net.Conn, wg *sync.WaitGroup) {
 	// Before we unwrap src and/or dst, copy any buffered data.
 	if wc, ok := src.(*Conn); ok && len(wc.Peeked) > 0 {
 		if _, err := dst.Write(wc.Peeked); err != nil {
+			log.Print(label, " peek ", err)
 			return
 		}
 		wc.Peeked = nil
@@ -69,21 +72,22 @@ func proxyCopy(label string, dst, src net.Conn, wg *sync.WaitGroup) {
 		to := dst.RemoteAddr()
 		leg := src.LocalAddr()
 		returnleg := dst.LocalAddr()
-		log.Printf("%s: (src) %s -> (dst) %s via (src %s and dst %s); tx: %d", label, from, to, leg, returnleg, n)
+		log.Printf("%s; [src %s (via %s)] -> [dst %s via (%s)]; tx: %d", label, from, leg, to, returnleg, n)
 	} else {
-		log.Print(err)
+		log.Print(label, " copy ", err)
 	}
 }
 
 func discardConn(c net.Conn) bool {
 	ipportaddr, err := netip.ParseAddrPort(c.RemoteAddr().String())
 	if err != nil {
-		log.Println(err)
+		log.Println("discardConn: ", err)
 		return true
 	}
 
 	ipaddr := ipportaddr.Addr()
 	if ipaddr.IsPrivate() || !ipaddr.IsValid() || ipaddr.IsUnspecified() {
+		log.Print("relay: drop conn to priv/invalid/unspecified ip")
 		return true
 	}
 	return false
