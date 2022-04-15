@@ -9,14 +9,16 @@ import (
 	"crypto/tls"
 	"log"
 	"net"
+
+	proxyproto "github.com/pires/go-proxyproto"
 )
 
 type splitListener struct {
-	listener net.Listener
+	listener *proxyproto.Listener
 	onConn   func(net.Conn) (net.Conn, bool)
 }
 
-func (l splitListener) Accept() (net.Conn, error) {
+func (l *splitListener) Accept() (net.Conn, error) {
 	for {
 		c, err := l.listener.Accept()
 		if err != nil {
@@ -31,11 +33,11 @@ func (l splitListener) Accept() (net.Conn, error) {
 	}
 }
 
-func (l splitListener) Close() error {
+func (l *splitListener) Close() error {
 	return l.listener.Close()
 }
 
-func (l splitListener) Addr() net.Addr {
+func (l *splitListener) Addr() net.Addr {
 	return l.listener.Addr()
 }
 
@@ -60,7 +62,7 @@ func tlsconfig() *tls.Config {
 }
 
 // ref: stackoverflow.com/a/69828625
-func splitTlsListener(tcp net.Listener, in func(net.Conn) (net.Conn, bool)) net.Listener {
+func splitTlsListener(tcp *proxyproto.Listener, in func(net.Conn) (net.Conn, bool)) net.Listener {
 	return tls.NewListener(
 		&splitListener{listener: tcp, onConn: in},
 		tlsconfig(),
