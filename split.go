@@ -63,8 +63,13 @@ func tlsconfig() *tls.Config {
 
 // ref: stackoverflow.com/a/69828625
 func splitTlsListener(tcp *proxyproto.Listener, in func(net.Conn) (net.Conn, bool)) net.Listener {
-	return tls.NewListener(
-		&splitListener{listener: tcp, onConn: in},
-		tlsconfig(),
-	)
+	if cfg := tlsconfig(); cfg == nil {
+		// no tls-certs setup, so split-listener isn't really required
+		return nil
+	} else {
+		return tls.NewListener(
+			&splitListener{listener: tcp, onConn: in},
+			cfg,
+		)
+	}
 }

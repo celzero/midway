@@ -44,8 +44,7 @@ func main() {
 		portmap["h11"] = ":8080"
 	}
 
-	done := &sync.WaitGroup{}
-	done.Add(totallisteners)
+	hold := barrier(totallisteners)
 
 	t443, err := net.Listen("tcp", portmap["tls"])
 	if err != nil {
@@ -101,15 +100,15 @@ func main() {
 		Transport: tr,
 	}
 
-	go echoUDP(u5000, done)
-	go echoTCP(t5000, done)
-	go echoPP(pp5001, done)
+	go echoUDP(u5000, hold)
+	go echoTCP(t5000, hold)
+	go echoPP(pp5001, hold)
 	// proxyproto listener works with plain tcp, too
-	go startPPWithDoH(pp443, dohresolver, done)
-	go startPPWithDoT(pp853, dohresolver, done)
-	go startPP(pp80, done)
+	go startPPWithDoH(pp443, dohresolver, hold)
+	go startPPWithDoT(pp853, dohresolver, hold)
+	go startPP(pp80, hold)
 
-	done.Wait()
+	hold.Wait()
 }
 
 func onNewConn(c net.Conn) (net.Conn, bool) {
@@ -122,7 +121,7 @@ func onNewConn(c net.Conn) (net.Conn, bool) {
 	}
 	// else, proxy the request to the backend as approp
 	go forwardConn(d)
-	return nil, true
+	return d, true
 }
 
 func startPPWithDoH(tcp *proxyproto.Listener, doh *http.Client, wg *sync.WaitGroup) {
@@ -133,17 +132,27 @@ func startPPWithDoH(tcp *proxyproto.Listener, doh *http.Client, wg *sync.WaitGro
 		return
 	}
 
-	stls := splitTlsListener(tcp, onNewConn)
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", dohHandler(doh))
-	dnsserver := &http.Server{
-		Handler:      mux,
-		ReadTimeout:  conntimeout,
-		WriteTimeout: conntimeout,
-	}
+	if stls := splitTlsListener(tcp, onNewConn); stls != nil {
+		log.Print("mode: relay + DoH ", tcp.Addr().String())
 
-	// http.Server takes ownership of stls
-	_ = dnsserver.Serve(stls)
+		mux := http.NewServeMux()
+		mux.HandleFunc("/", dohHandler(doh))
+		dnsserver := &http.Server{
+			Handler:      mux,
+			ReadTimeout:  conntimeout,
+			WriteTimeout: conntimeout,
+		}
+
+		// http.Server takes ownership of stls
+		err := dnsserver.Serve(stls)
+		log.Print("exit doh+relay:", err)
+	} else {
+		log.Print("mode: relay only ", tcp.Addr().String())
+
+		h := barrier(1)
+		startPP(tcp, h)
+		h.Wait()
+	}
 }
 
 func startPPWithDoT(tcp *proxyproto.Listener, doh *http.Client, wg *sync.WaitGroup) {
@@ -154,19 +163,28 @@ func startPPWithDoT(tcp *proxyproto.Listener, doh *http.Client, wg *sync.WaitGro
 		return
 	}
 
-	stls := splitTlsListener(tcp, onNewConn)
+	if stls := splitTlsListener(tcp, onNewConn); stls != nil {
+		log.Print("mode: relay + DoT ", tcp.Addr().String())
 
-	// ref: github.com/miekg/dns/blob/dedee46/server.go#L192
-	// usage: github.com/folbricht/routedns/blob/7b8e284/dotlistener.go#L29
-	dnsserver := &dns.Server{
-		Net:           "tcp-tls", // unused
-		Listener:      stls,
-		MaxTCPQueries: int(maxInflightQueries),
-		Handler:       dnsHandler(doh),
+		// ref: github.com/miekg/dns/blob/dedee46/server.go#L192
+		// usage: github.com/folbricht/routedns/blob/7b8e284/dotlistener.go#L29
+		dnsserver := &dns.Server{
+			Net:           "tcp-tls", // unused
+			Listener:      stls,
+			MaxTCPQueries: int(maxInflightQueries),
+			Handler:       dnsHandler(doh),
+		}
+
+		// ref: github.com/miekg/dns/blob/dedee46/server.go#L133
+		err := dnsserver.ActivateAndServe()
+		log.Print("exit dot+relay:", err)
+	} else {
+		log.Print("mode: relay only ", tcp.Addr().String())
+
+		h := barrier(1)
+		startPP(tcp, h)
+		h.Wait()
 	}
-
-	// ref: github.com/miekg/dns/blob/dedee46/server.go#L133
-	_ = dnsserver.ActivateAndServe()
 }
 
 func startPP(tcp *proxyproto.Listener, wg *sync.WaitGroup) {
@@ -190,4 +208,10 @@ func startPP(tcp *proxyproto.Listener, wg *sync.WaitGroup) {
 			}
 		}
 	}
+}
+
+func barrier(count int) *sync.WaitGroup {
+	w := &sync.WaitGroup{}
+	w.Add(count)
+	return w
 }
