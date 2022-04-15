@@ -22,8 +22,8 @@ func forwardConn(src *Conn) {
 	// 20:07 [info] host/sni missing 172.19.0.170:80 w.254.y.z:49008
 	// 20:19 [info] host/sni missing 172.19.0.170:443 w.x.161.z:42676
 	// 20:37 [info] host/sni missing 172.19.0.170:80 w.x.y.146:52548
-	if discardConn(src) {
-		log.Print("relay: drop conn to ", src.RemoteAddr().String())
+	// discard unforwardable conns; that is, the ones without host/sni
+	if len(src.HostName) <= 0 {
 		time.Sleep(noproxytimeout)
 		return
 	}
@@ -86,8 +86,14 @@ func discardConn(c net.Conn) bool {
 	}
 
 	ipaddr := ipportaddr.Addr()
-	if ipaddr.IsPrivate() || !ipaddr.IsValid() || ipaddr.IsUnspecified() {
-		log.Print("relay: drop conn to priv/invalid/unspecified ip")
+	if !ipaddr.IsValid() ||
+		ipaddr.IsPrivate() ||
+		ipaddr.IsUnspecified() ||
+		ipaddr.IsLoopback() ||
+		ipaddr.IsMulticast() ||
+		ipaddr.IsLinkLocalUnicast() ||
+		ipaddr.IsLinkLocalMulticast() {
+		log.Print("relay: conn remoting lo/mc/priv/invalid/unspecified ip:", ipaddr)
 		return true
 	}
 	return false
