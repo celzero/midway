@@ -40,9 +40,8 @@ func (l splitListener) Addr() net.Addr {
 }
 
 func tlsconfig() *tls.Config {
-
 	// ref: cs.opensource.google/go/go/+/refs/tags/go1.18:src/net/http/h2_bundle.go;drc=refs%2Ftags%2Fgo1.18;l=3983
-	certificate := tlscerts_env()
+	certificate, _ := tlscerts_env()
 	if certificate == nil {
 		log.Print("empty cert")
 		return nil

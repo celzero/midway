@@ -7,6 +7,7 @@ package main
 
 import (
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"log"
 	"os"
@@ -34,36 +35,31 @@ func upstreamDoh_env() string {
 	return strenv("UPSTREAM_DOH", "https://dns.google/dns-query")
 }
 
-func tlskeycertpem_env(snicsv string) ([]byte, []byte) {
+func tlskeycertpem_env() ([]byte, []byte) {
 	// "sub.domain.tld,sub2.domain2.tld2,sub3.domain3.tld3"
-	snis := strings.Split(snicsv, ",")
-	for j := range snis {
-		// sub.domain.tld => SUB_DOMAIN_TLD
-		sni := snis[j]
-		sni = strings.ReplaceAll(strings.ToUpper(sni), ".", "_")
-		pem := strenv(sni, "")
-		log.Print(sni, len(pem))
-		if len(pem) <= 0 {
-			continue
-		}
 
-		var key, cert []byte
-		// SUB_DOMAIN_TLD="KEY=b64_key_content\nCRT=b64_cert_content"
-		// why? community.fly.io/t/2984/21
-		lines := strings.Split(pem, "\n")
-		for i := range lines {
-			kv := strings.Split(lines[i], "=")
-			k := strings.ToUpper(kv[0])
-			v := kv[1]
-			if k == "KEY" {
-				key, _ = base64.RawStdEncoding.DecodeString(v)
-			} else if k == "CRT" {
-				cert, _ = base64.RawStdEncoding.DecodeString(v)
-			}
-			if len(key) >= 0 && len(cert) >= 0 {
-				log.Print("using key/cert for: ", sni)
-				return key, cert
-			}
+	ck := strenv("TLS_CERTKEY", "")
+	if len(ck) <= 0 {
+		log.Print("no pem env: ", len(ck))
+		return nil, nil
+	}
+
+	var key, cert []byte
+	// SUB_DOMAIN_TLD="KEY=b64_key_content\nCRT=b64_cert_content"
+	// why? community.fly.io/t/2984/21
+	lines := strings.Split(ck, "\n")
+	for i := range lines {
+		kv := strings.Split(lines[i], "=")
+		k := strings.ToUpper(kv[0])
+		v := kv[1]
+		if k == "KEY" {
+			// raw-std-encoding because kv rids of b64 padding by splitting on "="
+			key, _ = base64.RawStdEncoding.DecodeString(v)
+		} else if k == "CRT" {
+			cert, _ = base64.RawStdEncoding.DecodeString(v)
+		}
+		if len(key) > 0 && len(cert) > 0 {
+			return cert, key
 		}
 	}
 	return nil, nil
@@ -77,25 +73,33 @@ func tlskeyfile_env() string {
 	return strenv("TLS_KEY_PATH", "./test/certs/server.key")
 }
 
-func tlscerts_env() *tls.Certificate {
-	sni := dnsServerNames_env()
-	keypem, certpem := tlskeycertpem_env(sni) // prod
-	certfile := tlscertfile_env()             // test
-	keyfile := tlskeyfile_env()               // test
+func tlscerts_env() (*tls.Certificate, []string) {
+	certpem, keypem := tlskeycertpem_env() // prod
+	certfile := tlscertfile_env()          // test
+	keyfile := tlskeyfile_env()            // test
 
 	if crt, err := tls.X509KeyPair(certpem, keypem); err == nil {
-		log.Print("from key/crt pem: ", sni)
-		return &crt
+		log.Print("tls w key/crt PEM")
+		return &crt, sni(&crt)
 	} else if crt, err := tls.LoadX509KeyPair(certfile, keyfile); err == nil {
-		log.Print("from key/crt path: ", sni)
-		return &crt
+		log.Print("tls w key/crt FILE")
+		return &crt, sni(&crt)
 	} else {
-		return nil
+		return nil, nil
 	}
 }
 
-func dnsServerNames_env() string {
-	return strenv("TLS_CN", "test.rethinkdns.local")
+func sni(cx *tls.Certificate) []string {
+	// ref: cs.opensource.google/go/go/+/refs/tags/go1.18.1:src/crypto/tls/tls.go;drc=860704317e02d699e4e4a24103853c4782d746c1;l=252
+	// ref: cs.opensource.google/go/go/+/refs/tags/go1.18.1:src/crypto/tls/common.go;drc=2580d0e08d5e9f979b943758d3c49877fb2324cb;l=1374
+	// index0 contains der encoded cert
+	der, _ := x509.ParseCertificate(cx.Certificate[0])
+	var snis []string
+	snis = append(snis, der.Subject.CommonName)
+	snis = append(snis, der.DNSNames...)
+	log.Print("TLS with: ", der.Subject.String(), " | for: ", snis)
+
+	return snis
 }
 
 // ref: stackoverflow.com/a/66624820

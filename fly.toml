@@ -9,10 +9,9 @@ processes = []
   NOPROXY_TIMEOUT_SEC = "20"
   MAX_INFLIGHT_DNS_QUERIES = 1024
   UPSTREAM_DOH = "https://dns.google/dns-query"
-  TLS_CERT_PATH = "./test/certs/server.crt"
-  TLS_KEY_PATH = "./test/certs/server.key"
-  TLS_CN = "sub.domain.invalid"
-  SUB_DOMAIN_INVALID = "key=b64(server.key)\ncrt=b64(server.crt)"
+  # TLS_CERT_PATH = "./test/certs/server.crt"
+  # TLS_KEY_PATH = "./test/certs/server.key"
+  # TLS_CERTKEY = "key=b64(server.key)\ncrt=b64(server.crt)"
 
 [experimental]
   allowed_public_ports = []

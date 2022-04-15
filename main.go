@@ -24,7 +24,7 @@ var (
 	noproxytimeout     = noproxyTimeoutSec_env()
 	maxInflightQueries = maxInflightDNSQueries_env()
 	upstreamdoh        = upstreamDoh_env()
-	dnsServerNames     = strings.Split(dnsServerNames_env(), ",")
+	_, tlsDNSNames     = tlscerts_env()
 )
 
 // Adopted from: github.com/inetaf/tcpproxy/blob/be3ee21/tcpproxy.go
@@ -115,9 +115,8 @@ func main() {
 func onNewConn(c net.Conn) (net.Conn, bool) {
 	d := ProxConn(c)
 	// if the incoming sni == our dns-server, then serve the req
-	for i := range dnsServerNames {
-		sni := dnsServerNames[i]
-		if strings.Contains(d.HostName, sni) {
+	for i := range tlsDNSNames {
+		if strings.Contains(d.HostName, tlsDNSNames[i]) {
 			return d, false
 		}
 	}

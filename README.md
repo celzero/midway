@@ -35,20 +35,17 @@ curl abcxyz.neverssl.com --resolve 'abcxyz.neverssl.com:80:<midway-ip>' -v
 ### DNS
 midway runs DoT and DoH stub resolver on ports 443 and 853 (or 8443 and 8853 in
 non-previledge mode), forwarding queries to `UPSTREAM_DOH` env var (The Google
-Public Resolver is the default). `TLS_CN` env var must also be set matching
-the SNI (server name identification) of the DoH / DoT endpoint's TLS cert.
-Cert can be ethier supplied through the filesystem by setting env vars,
-`TLS_CERT_PATH` and `TLS_KEY_PATH`, or by base64 encoding the contents of
-key and cert into env var with the same name as `TLS_CN` but in uppercase and
-periods (`.`) replaced by underscores (`_`), like so:
-
-Test certs for DNS over TLS and DNS over HTTPS is in `/test/certs/` generated
-via openssl ([ref](https://github.com/denji/golang-tls))
+Public Resolver is the default). For TLS termination, Cert/Key pair can be ethier
+supplied by setting env vars, `TLS_CERT_PATH` / `TLS_KEY_PATH` pointing to cert
+/ key files, or by base64 encoding the contents of the file into env var,
+`TLS_CERTKEY` like so:
 
 ```bash
-TLS_CN = "example.domain.tld"
-EXAMPLE_DOMAIN_TLD = "KEY=b64(key-contents)\nCRT=b64(cert-contents)"
+TLS_CERTKEY = "KEY=b64(key-contents)\nCRT=b64(cert-contents)"
 ```
+
+Test certs for DNS over TLS and DNS over HTTPS in `/test/certs/` are generated
+via openssl ([ref](https://github.com/denji/golang-tls)).
 
 ### A note on HTTP/3 and QUIC
 QUIC takes the stakes even higher with [Connection IDs](https://www.rfc-editor.org/rfc/rfc9000.html#connections)
