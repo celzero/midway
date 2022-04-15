@@ -56,9 +56,10 @@ func dnsHandler(doh *http.Client) dns.HandlerFunc {
 			return
 		}
 
-		p := new(dns.Msg)
-		if err = p.Unpack(ansb); err == nil {
-			ans = p
+		x := new(dns.Msg)
+		if err = x.Unpack(ansb); err == nil {
+			log.Printf("dot: q0 %s => a0 %s | len(ans): %d", querystr(x), ansstr(x), len(x.Answer))
+			ans = x
 		}
 		return
 	}
@@ -135,10 +136,6 @@ func upstreamDNS(resolver *http.Client, b []byte, w http.ResponseWriter, r *http
 		return
 	}
 
-	querystr := q.Question[0].String()
-	ansstr := a.Answer[0].String()
-	log.Printf("dns: q0 %s => ans0 %s | len(ans): %d", querystr, ansstr, len(a.Answer))
-
 	// Pad the packet according to rfc8467 and rfc7830
 	// TODO: padAnswer(q, a)
 
@@ -181,12 +178,25 @@ func dodoh(resolver *http.Client, b []byte) *dns.Msg {
 
 	x := new(dns.Msg)
 	if err = x.Unpack(ans); err == nil {
-		querystr := x.Question[0].String()
-		ansstr := x.Answer[0].String()
-		log.Printf("dns: q0 %s  => ans0 %s | len(ans): %d", querystr, ansstr, len(x.Answer))
-
+		log.Printf("doh: q0 %s => a0 %s | len(ans): %d", querystr(x), ansstr(x), len(x.Answer))
 		return x
 	}
 
 	return nil
+}
+
+func querystr(m *dns.Msg) string {
+	if m == nil || m.Question == nil || len(m.Question) <= 0 {
+		return "no-query"
+	} else {
+		return m.Question[0].String()
+	}
+}
+
+func ansstr(m *dns.Msg) string {
+	if m == nil || m.Answer == nil || len(m.Answer) <= 0 {
+		return "no-ans"
+	} else {
+		return m.Answer[0].String()
+	}
 }
