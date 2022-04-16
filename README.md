@@ -21,7 +21,7 @@ curl https://www.example.com --resolve 'www.example.com:443:<midway-ip>' -v
 * Uses proxy env variable no_proxy == 'localhost,127.0.0.0/8,::1'
 * Hostname www.example.com was found in DNS cache
 #
-# this next log line is a confirmation that the traffic was routd to midway:
+# this next log line is a confirmation that the traffic was routed to midway:
 #
 *   Trying <midway-ip>:443...
 * TCP_NODELAY set
@@ -56,6 +56,16 @@ DoH public resolver `https://dns.google/dns-query` is the default).
 
 Test certs for DNS over TLS and DNS over HTTPS in `/test/certs/` are generated
 via openssl ([ref](https://github.com/denji/golang-tls)).
+
+```bash
+# DoH with Fly-terminated TLS; queries A record for google.com
+curl --http2-prior-knowledge https://<your-app-name>.fly.dev:1443/?dns=AAABAAABAAAAAAAABmdvb2dsZQNjb20AAAEAAQ -v
+curl --http2 https://<your-app-name>.fly.dev:1443/?dns=AAABAAABAAAAAAAABmdvb2dsZQNjb20AAAEAAQ -v
+curl --http1.1 https://<your-app-name>.fly.dev:1443/?dns=AAABAAABAAAAAAAABmdvb2dsZQNjb20AAAEAAQ -v
+
+# DoT with Fly-terminated TLS; queries A record for dit.whatsapp.net
+kdig -d @<your-app-name>.fly.dev:1853 +tls-host=<your-app-name>.fly.dev +tls-sni=<your-app-name>.fly.dev dit.whatsapp.net
+```
 
 ### A note on HTTP/3 and QUIC
 QUIC takes the stakes even higher with [Connection IDs](https://www.rfc-editor.org/rfc/rfc9000.html#connections)

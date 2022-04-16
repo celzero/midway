@@ -247,17 +247,21 @@ func startPPWithDoHCleartext(tcp *proxyproto.Listener, doh *http.Client, wg *syn
 
 	log.Print("mode: DoH cleartext ", tcp.Addr().String())
 
-	h2s := &http2.Server{}
-	doh2c := http.HandlerFunc(dohHandler(doh))
-	hello := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "Hello, %v, http: %v", r.URL.Path, r.TLS == nil)
+	h2svc := &http2.Server{}
+	// debug h2c with GODEBUG="http2debug=1" env
+	// ref: cs.opensource.google/go/x/net/+/290c469a:http2/h2c/h2c.go;drc=c6fcb2dbf98596caad8f56c0c398c1c6ff1fcff9;l=35
+	dohh2c := http.HandlerFunc(dohHandler(doh))
+	dnsfn := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/h/w" {
+			fmt.Fprintf(w, "Hello, %v, http: %v", r.URL.Path, r.TLS == nil)
+			return
+		}
+		dohh2c.ServeHTTP(w, r)
 	})
 
-	mux := http.NewServeMux()
-	mux.Handle("/h/w", h2c.NewHandler(hello, h2s))
-	mux.Handle("/", h2c.NewHandler(doh2c, h2s))
 	dnsserver := &http.Server{
-		Handler:      mux,
+		// h2c-handler embed in a http.NewServerMux doesn't work
+		Handler:      h2c.NewHandler(dnsfn, h2svc),
 		ReadTimeout:  conntimeout,
 		WriteTimeout: conntimeout,
 	}
