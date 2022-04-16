@@ -33,16 +33,26 @@ curl abcxyz.neverssl.com --resolve 'abcxyz.neverssl.com:80:<midway-ip>' -v
 ```
 
 ### DNS
-midway runs DoT and DoH stub resolver on ports 443 and 853 (or 8443 and 8853 in
-non-previledge mode), forwarding queries to `UPSTREAM_DOH` env var (The Google
-Public Resolver is the default). For TLS termination, Cert/Key pair can be ethier
+*Midway* runs Fly.io-terminated TLS DoT and DoH stub resolvers on ports `1443` and `1853`,
+this essentially means, you can access DoT over `<your-app-name>.fly.dev:1853` and DoH
+over `https://<your-app-name>.fly.dev:1443`.
+
+*Midway* also runs DoT and DoH stub resolver on ports `443` and `853` (or `8443` and
+`8853` in non-previledge mode). For TLS termination, Cert/Key pair can be ethier
 supplied by setting env vars, `TLS_CERT_PATH` / `TLS_KEY_PATH` pointing to cert
-/ key files, or by base64 encoding the contents of the file into env var,
+/ key files; or by base64 encoding the contents of the file into env var,
 `TLS_CERTKEY` like so:
 
 ```bash
-TLS_CERTKEY = "KEY=b64(key-contents)\nCRT=b64(cert-contents)"
+# either
+TLS_KEY_PATH = "/path/to/pem.key"
+TLS_CERT_PATH = "/path/to/pem.cert"
+# or
+TLS_CERTKEY = "KEY=b64(key-pem-contents)\nCRT=b64(cert-pem-contents)"
 ```
+
+The stub-resovler forwards queries to `UPSTREAM_DOH` env var (The Google
+DoH public resolver `https://dns.google/dns-query` is the default).
 
 Test certs for DNS over TLS and DNS over HTTPS in `/test/certs/` are generated
 via openssl ([ref](https://github.com/denji/golang-tls)).

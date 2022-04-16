@@ -15,6 +15,10 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/net/http2"
+
+	"golang.org/x/net/http2/h2c"
+
 	"github.com/miekg/dns"
 	proxyproto "github.com/pires/go-proxyproto"
 )
@@ -29,12 +33,12 @@ var (
 
 // Adopted from: github.com/inetaf/tcpproxy/blob/be3ee21/tcpproxy.go
 func main() {
-	totallisteners := 6
-
 	portmap := map[string]string{
+		"h11":    ":80",
 		"tls":    ":443",
 		"dot":    ":853",
-		"h11":    ":80",
+		"flydoh": ":1443",
+		"flydot": ":1853",
 		"echo":   ":5000",
 		"ppecho": ":5001",
 	}
@@ -44,8 +48,18 @@ func main() {
 		portmap["h11"] = ":8080"
 	}
 
+	totallisteners := len(portmap)
 	hold := barrier(totallisteners)
 
+	// cleartext http1.x on port 80
+	t80, err := net.Listen("tcp", portmap["h11"])
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("started: pptcp-server on port ", portmap["h11"])
+	pp80 := &proxyproto.Listener{Listener: t80}
+
+	// tcp-tls (http2 / http1.1) on port 443
 	t443, err := net.Listen("tcp", portmap["tls"])
 	if err != nil {
 		log.Fatal(err)
@@ -53,6 +67,7 @@ func main() {
 	fmt.Println("started: pptcp-server on port ", portmap["tls"])
 	pp443 := &proxyproto.Listener{Listener: t443}
 
+	// tcp-tls (DNS over TLS) on port 853
 	t853, err := net.Listen("tcp", portmap["dot"])
 	if err != nil {
 		log.Fatal(err)
@@ -60,12 +75,21 @@ func main() {
 	fmt.Println("started: pptcp-server on port ", portmap["dot"])
 	pp853 := &proxyproto.Listener{Listener: t853}
 
-	t80, err := net.Listen("tcp", portmap["h11"])
+	// fly terminated tls (http2 and http1.1) on port 1443
+	t1443, err := net.Listen("tcp", portmap["flydoh"])
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Println("started: pptcp-server on port ", portmap["h11"])
-	pp80 := &proxyproto.Listener{Listener: t80}
+	fmt.Println("started: pptcp-server on port ", portmap["flydoh"])
+	pp1443 := &proxyproto.Listener{Listener: t1443}
+
+	// fly terminated tls (DNS over TLS) on port 1853
+	t1853, err := net.Listen("tcp", portmap["flydot"])
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("started: pptcp-server on port ", portmap["flydot"])
+	pp1853 := &proxyproto.Listener{Listener: t1853}
 
 	// ref: fly.io/docs/app-guides/udp-and-tcp/
 	u5000, err := net.ListenPacket("udp", "fly-global-services:5000")
@@ -100,14 +124,16 @@ func main() {
 		Transport: tr,
 	}
 
+	// proxyproto listener works with plain tcp, too
+	go startPP(pp80, hold)
+	go startPPWithDoH(pp443, dohresolver, hold)
+	go startPPWithDoT(pp853, dohresolver, hold)
+	go startPPWithDoHCleartext(pp1443, dohresolver, hold)
+	go startPPWithDoTCleartext(pp1853, dohresolver, hold)
+	// echo servers on tcp and udp
 	go echoUDP(u5000, hold)
 	go echoTCP(t5000, hold)
 	go echoPP(pp5001, hold)
-	// proxyproto listener works with plain tcp, too
-	go startPPWithDoH(pp443, dohresolver, hold)
-	go startPPWithDoT(pp853, dohresolver, hold)
-	go startPP(pp80, hold)
-
 	hold.Wait()
 }
 
@@ -208,6 +234,59 @@ func startPP(tcp *proxyproto.Listener, wg *sync.WaitGroup) {
 			}
 		}
 	}
+}
+
+// ref: github.com/thrawn01/h2c-golang-example
+func startPPWithDoHCleartext(tcp *proxyproto.Listener, doh *http.Client, wg *sync.WaitGroup) {
+	defer wg.Done()
+
+	if tcp == nil {
+		log.Print("Exiting pp doh")
+		return
+	}
+
+	log.Print("mode: DoH cleartext ", tcp.Addr().String())
+
+	h2s := &http2.Server{}
+	doh2c := http.HandlerFunc(dohHandler(doh))
+	hello := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, "Hello, %v, http: %v", r.URL.Path, r.TLS == nil)
+	})
+
+	mux := http.NewServeMux()
+	mux.Handle("/h/w", h2c.NewHandler(hello, h2s))
+	mux.Handle("/", h2c.NewHandler(doh2c, h2s))
+	dnsserver := &http.Server{
+		Handler:      mux,
+		ReadTimeout:  conntimeout,
+		WriteTimeout: conntimeout,
+	}
+
+	err := dnsserver.Serve(tcp)
+	log.Print("exit doh cleartext:", err)
+}
+
+func startPPWithDoTCleartext(tcp *proxyproto.Listener, doh *http.Client, wg *sync.WaitGroup) {
+	defer wg.Done()
+
+	if tcp == nil {
+		log.Print("Exiting pp dot")
+		return
+	}
+
+	log.Print("mode: DoT cleartext ", tcp.Addr().String())
+	// ref: github.com/miekg/dns/blob/dedee46/server.go#L192
+	// usage: github.com/folbricht/routedns/blob/7b8e284/dotlistener.go#L29
+	dnsserver := &dns.Server{
+		Net:           "tcp", // unused
+		Listener:      tcp,
+		MaxTCPQueries: int(maxInflightQueries),
+		Handler:       dnsHandler(doh),
+	}
+
+	// ref: github.com/miekg/dns/blob/dedee46/server.go#L133
+	err := dnsserver.ActivateAndServe()
+	log.Print("exit dot cleartext:", err)
 }
 
 func barrier(count int) *sync.WaitGroup {
