@@ -89,6 +89,10 @@ func tlscerts_env() (*tls.Certificate, []string) {
 	}
 }
 
+func flyappname_env() string {
+	return strenv("FLY_APP_NAME", "")
+}
+
 func sni(cx *tls.Certificate) []string {
 	// ref: cs.opensource.google/go/go/+/refs/tags/go1.18.1:src/crypto/tls/tls.go;drc=860704317e02d699e4e4a24103853c4782d746c1;l=252
 	// ref: cs.opensource.google/go/go/+/refs/tags/go1.18.1:src/crypto/tls/common.go;drc=2580d0e08d5e9f979b943758d3c49877fb2324cb;l=1374

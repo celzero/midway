@@ -10,8 +10,14 @@ import (
 	"log"
 	"net"
 	"net/netip"
+	"strings"
 	"sync"
 	"time"
+)
+
+var (
+	flyappname = flyappname_env()
+	flyurl     = flyappname + ".fly.dev"
 )
 
 func forwardConn(src *Conn) {
@@ -22,8 +28,7 @@ func forwardConn(src *Conn) {
 	// 20:07 [info] host/sni missing 172.19.0.170:80 w.254.y.z:49008
 	// 20:19 [info] host/sni missing 172.19.0.170:443 w.x.161.z:42676
 	// 20:37 [info] host/sni missing 172.19.0.170:80 w.x.y.146:52548
-	// discard unforwardable conns; that is, the ones without host/sni
-	if len(src.HostName) <= 0 {
+	if cannotproxy(src) {
 		time.Sleep(noproxytimeout)
 		return
 	}
@@ -37,7 +42,7 @@ func forwardConn(src *Conn) {
 
 	defer dst.Close()
 
-	if discardConn(dst) {
+	if disallowed(dst) {
 		log.Print("relay: drop conn to ", dst.RemoteAddr().String())
 		time.Sleep(noproxytimeout)
 		return
@@ -78,7 +83,20 @@ func proxyCopy(label string, dst, src net.Conn, wg *sync.WaitGroup) {
 	}
 }
 
-func discardConn(c net.Conn) bool {
+func cannotproxy(c *Conn) bool {
+	dsturl := c.HostName
+
+	if len(dsturl) <= 0 {
+		// discard conn without host/sni
+		return true
+	} else if len(flyappname) > 0 && strings.Contains(dsturl, flyurl) {
+		// discard conn to this host
+		return true
+	}
+	return false // can proxy
+}
+
+func disallowed(c net.Conn) bool {
 	ipportaddr, err := netip.ParseAddrPort(c.RemoteAddr().String())
 	if err != nil {
 		log.Println("discardConn: ", err)
