@@ -11,15 +11,32 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/miekg/dns"
 )
 
 // Adopted from: github.com/folbricht/routedns
 
-func dnsHandler(doh *http.Client) dns.HandlerFunc {
+type dohstub struct {
+	ipport string
+	doh    *http.Client
+}
+
+func NewDohStub(ipport string) *dohstub {
+	tr := &http.Transport{
+		ResponseHeaderTimeout: 10 * time.Second,
+		IdleConnTimeout:       30 * time.Second,
+	}
+	hc := &http.Client{
+		Transport: tr,
+	}
+	return &dohstub{ipport, hc}
+}
+
+func (s *dohstub) dnsHandler() dns.HandlerFunc {
 	return func(w dns.ResponseWriter, msg *dns.Msg) {
-		ans := refused(msg)
+		ans := s.refused(msg)
 		defer func() {
 			_ = w.WriteMsg(ans)
 			w.Close()
@@ -30,46 +47,18 @@ func dnsHandler(doh *http.Client) dns.HandlerFunc {
 			return
 		}
 
-		req, err := http.NewRequest("POST", upstreamdoh, bytes.NewReader(q))
-		if err != nil {
-			return
-		}
-
-		ans = servfail(msg)
-		req.Header.Add("accept", "application/dns-message")
-		req.Header.Add("content-type", "application/dns-message")
-
-		// TODO: rm and restore query-id
-		res, err := doh.Do(req)
-
-		if err != nil {
-			return
-		}
-		defer res.Body.Close()
-
-		if res.StatusCode < 200 || res.StatusCode > 299 {
-			return
-		}
-
-		ansb, err := ioutil.ReadAll(res.Body)
-		if err != nil {
-			return
-		}
-
-		x := new(dns.Msg)
-		if err = x.Unpack(ansb); err == nil {
-			log.Printf("dot: q0 %s => a0 %s | len(ans): %d", querystr(x), ansstr(x), len(x.Answer))
+		if x := s.dodoh(q); x != nil {
 			ans = x
 		}
 		return
 	}
 }
 
-func servfail(q *dns.Msg) *dns.Msg {
+func (s *dohstub) servfail(q *dns.Msg) *dns.Msg {
 	return responseWithCode(q, dns.RcodeServerFailure)
 }
 
-func refused(q *dns.Msg) *dns.Msg {
+func (s *dohstub) refused(q *dns.Msg) *dns.Msg {
 	return responseWithCode(q, dns.RcodeRefused)
 }
 
@@ -79,21 +68,21 @@ func responseWithCode(q *dns.Msg, rcode int) *dns.Msg {
 	return a
 }
 
-func dohHandler(resolver *http.Client) http.HandlerFunc {
+func (s *dohstub) dohHandler() http.HandlerFunc {
 	// ref: github.com/folbricht/routedns/blob/5932594/dohlistener.go#L153
 	return func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case "GET":
-			getHandler(resolver, w, r)
+			s.getHandler(w, r)
 		case "POST":
-			postHandler(resolver, w, r)
+			s.postHandler(w, r)
 		default:
 			http.Error(w, "GET or POST only", http.StatusMethodNotAllowed)
 		}
 	}
 }
 
-func getHandler(resolver *http.Client, w http.ResponseWriter, r *http.Request) {
+func (s *dohstub) getHandler(w http.ResponseWriter, r *http.Request) {
 	b64, ok := r.URL.Query()["dns"]
 	if !ok {
 		http.Error(w, "query missing", http.StatusBadRequest)
@@ -108,19 +97,19 @@ func getHandler(resolver *http.Client, w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	upstreamDNS(resolver, b, w, r)
+	s.upstreamDNS(b, w, r)
 }
 
-func postHandler(resolver *http.Client, w http.ResponseWriter, r *http.Request) {
+func (s *dohstub) postHandler(w http.ResponseWriter, r *http.Request) {
 	b, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	upstreamDNS(resolver, b, w, r)
+	s.upstreamDNS(b, w, r)
 }
 
-func upstreamDNS(resolver *http.Client, b []byte, w http.ResponseWriter, r *http.Request) {
+func (s *dohstub) upstreamDNS(b []byte, w http.ResponseWriter, r *http.Request) {
 	q := new(dns.Msg)
 	if err := q.Unpack(b); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -128,7 +117,7 @@ func upstreamDNS(resolver *http.Client, b []byte, w http.ResponseWriter, r *http
 	}
 
 	var err error
-	a := dodoh(resolver, b)
+	a := s.dodoh(b)
 
 	// A nil response from the resolvers means "drop", return blank response
 	if a == nil {
@@ -151,7 +140,7 @@ func upstreamDNS(resolver *http.Client, b []byte, w http.ResponseWriter, r *http
 }
 
 // TODO: rm query-id before request and restore after response
-func dodoh(resolver *http.Client, b []byte) *dns.Msg {
+func (s *dohstub) dodoh(b []byte) *dns.Msg {
 	req, err := http.NewRequest("POST", upstreamdoh, bytes.NewReader(b))
 	if err != nil {
 		return nil
@@ -160,7 +149,7 @@ func dodoh(resolver *http.Client, b []byte) *dns.Msg {
 	req.Header.Add("accept", "application/dns-message")
 	req.Header.Add("content-type", "application/dns-message")
 
-	res, err := resolver.Do(req)
+	res, err := s.doh.Do(req)
 
 	if err != nil {
 		return nil
@@ -178,14 +167,14 @@ func dodoh(resolver *http.Client, b []byte) *dns.Msg {
 
 	x := new(dns.Msg)
 	if err = x.Unpack(ans); err == nil {
-		log.Printf("doh: q0 %s => a0 %s | len(ans): %d", querystr(x), ansstr(x), len(x.Answer))
+		log.Printf("doh: q0 %s => a0 %s | len(ans): %d", s.querystr(x), s.ansstr(x), len(x.Answer))
 		return x
 	}
 
 	return nil
 }
 
-func querystr(m *dns.Msg) string {
+func (s *dohstub) querystr(m *dns.Msg) string {
 	if m == nil || m.Question == nil || len(m.Question) <= 0 {
 		return "no-query"
 	} else {
@@ -193,7 +182,7 @@ func querystr(m *dns.Msg) string {
 	}
 }
 
-func ansstr(m *dns.Msg) string {
+func (s *dohstub) ansstr(m *dns.Msg) string {
 	if m == nil || m.Answer == nil || len(m.Answer) <= 0 {
 		return "no-ans"
 	} else {
