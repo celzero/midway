@@ -1,23 +1,17 @@
-# build
-FROM golang:1.18-alpine AS builder
+# ref: stackoverflow.com/a/57175575
+FROM golang:1.18 AS builder
 
-RUN     mkdir /app
-WORKDIR /app
+RUN       mkdir /app
+WORKDIR   /app
 
-COPY    go.mod ./
-COPY    go.sum ./
-RUN     go mod download
+ADD       . ./
 
-COPY    . ./
+RUN       go mod download
+RUN       CGOENABLED=0 go build -o ./gw
 
-RUN     go build -o ./gw
+# github.com/GoogleContainerTools/distroless/blob/f4f2a30/examples/go/Dockerfile
+FROM gcr.io/distroless/static AS runner
 
-# deploy
-FROM alpine AS runner
+COPY --from=builder /app/gw /
 
-RUN mkdir /app/
-
-WORKDIR /app
-COPY --from=builder /app/gw ./
-
-CMD ["./gw"]
+CMD ["/gw"]
