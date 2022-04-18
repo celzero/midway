@@ -7,7 +7,8 @@ WORKDIR   /app
 ADD       . ./
 
 RUN       go mod download
-RUN       CGOENABLED=0 go build -o ./gw
+# cgo off: stackoverflow.com/a/70882080
+RUN       CGO_ENABLED=0 go build -o ./gw
 
 # github.com/GoogleContainerTools/distroless/blob/f4f2a30/examples/go/Dockerfile
 FROM gcr.io/distroless/static AS runner
