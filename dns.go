@@ -19,11 +19,11 @@ import (
 // Adopted from: github.com/folbricht/routedns
 
 type dohstub struct {
-	ipport string
-	doh    *http.Client
+	url string
+	doh *http.Client
 }
 
-func NewDohStub(ipport string) *dohstub {
+func NewDohStub(url string) *dohstub {
 	tr := &http.Transport{
 		ResponseHeaderTimeout: 10 * time.Second,
 		IdleConnTimeout:       30 * time.Second,
@@ -31,7 +31,7 @@ func NewDohStub(ipport string) *dohstub {
 	hc := &http.Client{
 		Transport: tr,
 	}
-	return &dohstub{ipport, hc}
+	return &dohstub{url, hc}
 }
 
 func (s *dohstub) dnsHandler() dns.HandlerFunc {
@@ -141,7 +141,7 @@ func (s *dohstub) upstreamDNS(b []byte, w http.ResponseWriter, r *http.Request) 
 
 // TODO: rm query-id before request and restore after response
 func (s *dohstub) dodoh(b []byte) *dns.Msg {
-	req, err := http.NewRequest("POST", upstreamdoh, bytes.NewReader(b))
+	req, err := http.NewRequest("POST", s.url, bytes.NewReader(b))
 	if err != nil {
 		return nil
 	}
