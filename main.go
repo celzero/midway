@@ -6,29 +6,14 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"log"
 	"net"
-	"net/http"
-	"strings"
 	"sync"
 
 	"github.com/celzero/gateway/midway"
 	"github.com/celzero/gateway/midway/env"
-	"github.com/celzero/gateway/midway/relay"
-	"github.com/miekg/dns"
 	proxyproto "github.com/pires/go-proxyproto"
-
-	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/h2c"
-)
-
-var (
-	conntimeout        = env.ConnTimeoutSec()
-	maxInflightQueries = env.MaxInflightDNSQueries()
-	upstreamdoh        = env.UpstreamDoh()
-	_, tlsDNSNames     = env.TlsCerts()
 )
 
 // Adopted from: github.com/inetaf/tcpproxy/blob/be3ee21/tcpproxy.go
@@ -102,177 +87,20 @@ func main() {
 	fmt.Println("started: pptcp-server on port ", portmap["ppecho"])
 	pp5001 := &proxyproto.Listener{Listener: t5001}
 
-	resolver := midway.NewDohStub(upstreamdoh)
+	resolver := midway.NewDohStub(env.UpstreamDoh())
 
 	// proxyproto listener works with plain tcp, too
-	go startPP(pp80, hold)
-	go startPPWithDoH(pp443, resolver, hold)
-	go startPPWithDoT(pp853, resolver, hold)
-	go startPPWithDoHCleartext(pp1443, resolver, hold)
-	go startPPWithDoTCleartext(pp1853, resolver, hold)
+	go midway.StartPP(pp80, hold)
+	go midway.StartPPWithDoH(pp443, resolver, hold)
+	go midway.StartPPWithDoT(pp853, resolver, hold)
+	go midway.StartPPWithDoHCleartext(pp1443, resolver, hold)
+	go midway.StartPPWithDoTCleartext(pp1853, resolver, hold)
 	// echo servers on tcp and udp
 	go midway.EchoUDP(u5000, hold)
 	go midway.EchoTCP(t5000, hold)
 	go midway.EchoPP(pp5001, hold)
+
 	hold.Wait()
-}
-
-func accept(c net.Conn) (net.Conn, bool) {
-	d := relay.NewProxyConn(c)
-	// if the incoming sni == our dns-server, then serve the req
-	for i := range tlsDNSNames {
-		if strings.Contains(d.HostName, tlsDNSNames[i]) {
-			return d, false
-		}
-	}
-	// else, proxy the request to the backend as approp
-	go d.Forward()
-	return d, true
-}
-
-func startPPWithDoH(tcp *proxyproto.Listener, doh midway.DohResolver, wg *sync.WaitGroup) {
-	defer wg.Done()
-
-	if tcp == nil {
-		log.Print("Exiting pp doh")
-		return
-	}
-
-	if stls := relay.NewTlsListener(tcp, accept); stls != nil {
-		log.Print("mode: relay + DoH ", tcp.Addr().String())
-
-		mux := http.NewServeMux()
-		mux.HandleFunc("/", doh.DohHandler())
-		dnsserver := &http.Server{
-			Handler:      mux,
-			ReadTimeout:  conntimeout,
-			WriteTimeout: conntimeout,
-		}
-
-		// http.Server takes ownership of stls
-		err := dnsserver.Serve(stls)
-		log.Print("exit doh+relay:", err)
-	} else {
-		log.Print("mode: relay only ", tcp.Addr().String())
-
-		h := barrier(1)
-		startPP(tcp, h)
-		h.Wait()
-	}
-}
-
-func startPPWithDoT(tcp *proxyproto.Listener, doh midway.DohResolver, wg *sync.WaitGroup) {
-	defer wg.Done()
-
-	if tcp == nil {
-		log.Print("Exiting pp dot")
-		return
-	}
-
-	if stls := relay.NewTlsListener(tcp, accept); stls != nil {
-		log.Print("mode: relay + DoT ", tcp.Addr().String())
-
-		// ref: github.com/miekg/dns/blob/dedee46/server.go#L192
-		// usage: github.com/folbricht/routedns/blob/7b8e284/dotlistener.go#L29
-		dnsserver := &dns.Server{
-			Net:           "tcp-tls", // unused
-			Listener:      stls,
-			MaxTCPQueries: int(maxInflightQueries),
-			Handler:       doh.DnsHandler(),
-		}
-
-		// ref: github.com/miekg/dns/blob/dedee46/server.go#L133
-		err := dnsserver.ActivateAndServe()
-		log.Print("exit dot+relay:", err)
-	} else {
-		log.Print("mode: relay only ", tcp.Addr().String())
-
-		h := barrier(1)
-		startPP(tcp, h)
-		h.Wait()
-	}
-}
-
-func startPP(tcp *proxyproto.Listener, wg *sync.WaitGroup) {
-	defer wg.Done()
-
-	if tcp == nil {
-		log.Print("Exiting pp tcp")
-		return
-	}
-
-	defer tcp.Close()
-
-	for {
-		if conn, err := tcp.Accept(); err == nil {
-			if _, ok := accept(conn); !ok {
-				log.Print("cannot accept conn")
-			}
-		} else {
-			log.Print("handle pp tcp err")
-			if errors.Is(err, net.ErrClosed) {
-				log.Print(err)
-				return
-			}
-		}
-	}
-}
-
-// ref: github.com/thrawn01/h2c-golang-example
-func startPPWithDoHCleartext(tcp *proxyproto.Listener, doh midway.DohResolver, wg *sync.WaitGroup) {
-	defer wg.Done()
-
-	if tcp == nil {
-		log.Print("Exiting pp doh")
-		return
-	}
-
-	log.Print("mode: DoH cleartext ", tcp.Addr().String())
-
-	h2svc := &http2.Server{}
-	// debug h2c with GODEBUG="http2debug=1" env
-	// ref: cs.opensource.google/go/x/net/+/290c469a:http2/h2c/h2c.go;drc=c6fcb2dbf98596caad8f56c0c398c1c6ff1fcff9;l=35
-	dohh2c := http.HandlerFunc(doh.DohHandler())
-	dnsfn := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/h/w" {
-			fmt.Fprintf(w, "Hello, %v, http: %v", r.URL.Path, r.TLS == nil)
-			return
-		}
-		dohh2c.ServeHTTP(w, r)
-	})
-
-	dnsserver := &http.Server{
-		// h2c-handler embed in a http.NewServerMux doesn't work
-		Handler:      h2c.NewHandler(dnsfn, h2svc),
-		ReadTimeout:  conntimeout,
-		WriteTimeout: conntimeout,
-	}
-
-	err := dnsserver.Serve(tcp)
-	log.Print("exit doh cleartext:", err)
-}
-
-func startPPWithDoTCleartext(tcp *proxyproto.Listener, doh midway.DohResolver, wg *sync.WaitGroup) {
-	defer wg.Done()
-
-	if tcp == nil {
-		log.Print("Exiting pp dot")
-		return
-	}
-
-	log.Print("mode: DoT cleartext ", tcp.Addr().String())
-	// ref: github.com/miekg/dns/blob/dedee46/server.go#L192
-	// usage: github.com/folbricht/routedns/blob/7b8e284/dotlistener.go#L29
-	dnsserver := &dns.Server{
-		Net:           "tcp", // unused
-		Listener:      tcp,
-		MaxTCPQueries: int(maxInflightQueries),
-		Handler:       doh.DnsHandler(),
-	}
-
-	// ref: github.com/miekg/dns/blob/dedee46/server.go#L133
-	err := dnsserver.ActivateAndServe()
-	log.Print("exit dot cleartext:", err)
 }
 
 func barrier(count int) *sync.WaitGroup {
