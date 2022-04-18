@@ -3,13 +3,14 @@
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
-package main
+package relay
 
 import (
 	"crypto/tls"
 	"log"
 	"net"
 
+	"github.com/celzero/gateway/midway/env"
 	proxyproto "github.com/pires/go-proxyproto"
 )
 
@@ -41,29 +42,9 @@ func (l *splitListener) Addr() net.Addr {
 	return l.listener.Addr()
 }
 
-func tlsconfig() *tls.Config {
-	// ref: cs.opensource.google/go/go/+/refs/tags/go1.18:src/net/http/h2_bundle.go;drc=refs%2Ftags%2Fgo1.18;l=3983
-	certificate, _ := tlscerts_env()
-	if certificate == nil {
-		log.Print("empty cert")
-		return nil
-	}
-	c := []tls.Certificate{*certificate}
-
-	alpn := []string{"h2", "http/1.1"}
-
-	// ref: github.com/caddyserver/caddy/blob/c48fadc/modules/caddytls/connpolicy.go#L441
-	// ref: github.com/folbricht/routedns/blob/35c9051/tls.go#L12
-	return &tls.Config{
-		Certificates: c,
-		MinVersion:   tls.VersionTLS12,
-		NextProtos:   alpn,
-	}
-}
-
 // ref: stackoverflow.com/a/69828625
-func splitTlsListener(tcp *proxyproto.Listener, in func(net.Conn) (net.Conn, bool)) net.Listener {
-	if cfg := tlsconfig(); cfg == nil {
+func NewTlsListener(tcp *proxyproto.Listener, in func(net.Conn) (net.Conn, bool)) net.Listener {
+	if cfg := env.TlsConfig(); cfg == nil {
 		// no tls-certs setup, so split-listener isn't really required
 		return nil
 	} else {

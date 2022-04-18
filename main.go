@@ -14,6 +14,9 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/celzero/gateway/midway"
+	"github.com/celzero/gateway/midway/env"
+	"github.com/celzero/gateway/midway/relay"
 	"github.com/miekg/dns"
 	proxyproto "github.com/pires/go-proxyproto"
 
@@ -22,11 +25,10 @@ import (
 )
 
 var (
-	conntimeout        = connTimeoutSec_env()
-	noproxytimeout     = noproxyTimeoutSec_env()
-	maxInflightQueries = maxInflightDNSQueries_env()
-	upstreamdoh        = upstreamDoh_env()
-	_, tlsDNSNames     = tlscerts_env()
+	conntimeout        = env.ConnTimeoutSec()
+	maxInflightQueries = env.MaxInflightDNSQueries()
+	upstreamdoh        = env.UpstreamDoh()
+	_, tlsDNSNames     = env.TlsCerts()
 )
 
 // Adopted from: github.com/inetaf/tcpproxy/blob/be3ee21/tcpproxy.go
@@ -40,7 +42,7 @@ func main() {
 		"echo":   ":5000",
 		"ppecho": ":5001",
 	}
-	if !sudo() {
+	if !env.Sudo() {
 		portmap["tls"] = ":8443"
 		portmap["dot"] = ":8853"
 		portmap["h11"] = ":8080"
@@ -83,10 +85,10 @@ func main() {
 	u5000, err := net.ListenPacket("udp", "fly-global-services:5000")
 	if err != nil {
 		log.Println(err)
-		if pc5000, err := net.ListenPacket("udp", portmap["echo"]); err == nil {
-			u5000 = pc5000
-		} else {
+		if pc5000, err := net.ListenPacket("udp", portmap["echo"]); err != nil {
 			ko(err)
+		} else {
+			u5000 = pc5000
 		}
 	}
 	fmt.Println("started: udp-server on port ", portmap["echo"])
@@ -100,7 +102,7 @@ func main() {
 	fmt.Println("started: pptcp-server on port ", portmap["ppecho"])
 	pp5001 := &proxyproto.Listener{Listener: t5001}
 
-	resolver := NewDohStub(upstreamdoh)
+	resolver := midway.NewDohStub(upstreamdoh)
 
 	// proxyproto listener works with plain tcp, too
 	go startPP(pp80, hold)
@@ -109,14 +111,14 @@ func main() {
 	go startPPWithDoHCleartext(pp1443, resolver, hold)
 	go startPPWithDoTCleartext(pp1853, resolver, hold)
 	// echo servers on tcp and udp
-	go echoUDP(u5000, hold)
-	go echoTCP(t5000, hold)
-	go echoPP(pp5001, hold)
+	go midway.EchoUDP(u5000, hold)
+	go midway.EchoTCP(t5000, hold)
+	go midway.EchoPP(pp5001, hold)
 	hold.Wait()
 }
 
 func accept(c net.Conn) (net.Conn, bool) {
-	d := NewProxyConn(c)
+	d := relay.NewProxyConn(c)
 	// if the incoming sni == our dns-server, then serve the req
 	for i := range tlsDNSNames {
 		if strings.Contains(d.HostName, tlsDNSNames[i]) {
@@ -124,11 +126,11 @@ func accept(c net.Conn) (net.Conn, bool) {
 		}
 	}
 	// else, proxy the request to the backend as approp
-	go d.forward()
+	go d.Forward()
 	return d, true
 }
 
-func startPPWithDoH(tcp *proxyproto.Listener, doh *dohstub, wg *sync.WaitGroup) {
+func startPPWithDoH(tcp *proxyproto.Listener, doh midway.DohResolver, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	if tcp == nil {
@@ -136,11 +138,11 @@ func startPPWithDoH(tcp *proxyproto.Listener, doh *dohstub, wg *sync.WaitGroup) 
 		return
 	}
 
-	if stls := splitTlsListener(tcp, accept); stls != nil {
+	if stls := relay.NewTlsListener(tcp, accept); stls != nil {
 		log.Print("mode: relay + DoH ", tcp.Addr().String())
 
 		mux := http.NewServeMux()
-		mux.HandleFunc("/", doh.dohHandler())
+		mux.HandleFunc("/", doh.DohHandler())
 		dnsserver := &http.Server{
 			Handler:      mux,
 			ReadTimeout:  conntimeout,
@@ -159,7 +161,7 @@ func startPPWithDoH(tcp *proxyproto.Listener, doh *dohstub, wg *sync.WaitGroup) 
 	}
 }
 
-func startPPWithDoT(tcp *proxyproto.Listener, doh *dohstub, wg *sync.WaitGroup) {
+func startPPWithDoT(tcp *proxyproto.Listener, doh midway.DohResolver, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	if tcp == nil {
@@ -167,7 +169,7 @@ func startPPWithDoT(tcp *proxyproto.Listener, doh *dohstub, wg *sync.WaitGroup) 
 		return
 	}
 
-	if stls := splitTlsListener(tcp, accept); stls != nil {
+	if stls := relay.NewTlsListener(tcp, accept); stls != nil {
 		log.Print("mode: relay + DoT ", tcp.Addr().String())
 
 		// ref: github.com/miekg/dns/blob/dedee46/server.go#L192
@@ -176,7 +178,7 @@ func startPPWithDoT(tcp *proxyproto.Listener, doh *dohstub, wg *sync.WaitGroup) 
 			Net:           "tcp-tls", // unused
 			Listener:      stls,
 			MaxTCPQueries: int(maxInflightQueries),
-			Handler:       doh.dnsHandler(),
+			Handler:       doh.DnsHandler(),
 		}
 
 		// ref: github.com/miekg/dns/blob/dedee46/server.go#L133
@@ -217,7 +219,7 @@ func startPP(tcp *proxyproto.Listener, wg *sync.WaitGroup) {
 }
 
 // ref: github.com/thrawn01/h2c-golang-example
-func startPPWithDoHCleartext(tcp *proxyproto.Listener, doh *dohstub, wg *sync.WaitGroup) {
+func startPPWithDoHCleartext(tcp *proxyproto.Listener, doh midway.DohResolver, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	if tcp == nil {
@@ -230,7 +232,7 @@ func startPPWithDoHCleartext(tcp *proxyproto.Listener, doh *dohstub, wg *sync.Wa
 	h2svc := &http2.Server{}
 	// debug h2c with GODEBUG="http2debug=1" env
 	// ref: cs.opensource.google/go/x/net/+/290c469a:http2/h2c/h2c.go;drc=c6fcb2dbf98596caad8f56c0c398c1c6ff1fcff9;l=35
-	dohh2c := http.HandlerFunc(doh.dohHandler())
+	dohh2c := http.HandlerFunc(doh.DohHandler())
 	dnsfn := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/h/w" {
 			fmt.Fprintf(w, "Hello, %v, http: %v", r.URL.Path, r.TLS == nil)
@@ -250,7 +252,7 @@ func startPPWithDoHCleartext(tcp *proxyproto.Listener, doh *dohstub, wg *sync.Wa
 	log.Print("exit doh cleartext:", err)
 }
 
-func startPPWithDoTCleartext(tcp *proxyproto.Listener, doh *dohstub, wg *sync.WaitGroup) {
+func startPPWithDoTCleartext(tcp *proxyproto.Listener, doh midway.DohResolver, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	if tcp == nil {
@@ -265,7 +267,7 @@ func startPPWithDoTCleartext(tcp *proxyproto.Listener, doh *dohstub, wg *sync.Wa
 		Net:           "tcp", // unused
 		Listener:      tcp,
 		MaxTCPQueries: int(maxInflightQueries),
-		Handler:       doh.dnsHandler(),
+		Handler:       doh.DnsHandler(),
 	}
 
 	// ref: github.com/miekg/dns/blob/dedee46/server.go#L133

@@ -3,7 +3,7 @@
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
-package main
+package midway
 
 import (
 	"bytes"
@@ -18,12 +18,18 @@ import (
 
 // Adopted from: github.com/folbricht/routedns
 
+type DohResolver interface {
+	DnsHandler() dns.HandlerFunc
+	DohHandler() http.HandlerFunc
+}
+
 type dohstub struct {
 	url string
 	doh *http.Client
+	DohResolver
 }
 
-func NewDohStub(url string) *dohstub {
+func NewDohStub(url string) DohResolver {
 	tr := &http.Transport{
 		ResponseHeaderTimeout: 10 * time.Second,
 		IdleConnTimeout:       30 * time.Second,
@@ -31,26 +37,22 @@ func NewDohStub(url string) *dohstub {
 	hc := &http.Client{
 		Transport: tr,
 	}
-	return &dohstub{url, hc}
+	return &dohstub{url: url, doh: hc}
 }
 
-func (s *dohstub) dnsHandler() dns.HandlerFunc {
+func (s *dohstub) DnsHandler() dns.HandlerFunc {
 	return func(w dns.ResponseWriter, msg *dns.Msg) {
-		ans := s.refused(msg)
+		ans := s.servfail(msg)
 		defer func() {
 			_ = w.WriteMsg(ans)
 			w.Close()
 		}()
 
-		q, err := msg.Pack()
-		if err != nil {
-			return
+		if q, err := msg.Pack(); err == nil {
+			if x := s.dodoh(q); x != nil {
+				ans = x
+			}
 		}
-
-		if x := s.dodoh(q); x != nil {
-			ans = x
-		}
-		return
 	}
 }
 
@@ -68,7 +70,7 @@ func responseWithCode(q *dns.Msg, rcode int) *dns.Msg {
 	return a
 }
 
-func (s *dohstub) dohHandler() http.HandlerFunc {
+func (s *dohstub) DohHandler() http.HandlerFunc {
 	// ref: github.com/folbricht/routedns/blob/5932594/dohlistener.go#L153
 	return func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {

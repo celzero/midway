@@ -3,7 +3,7 @@
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
-package main
+package relay
 
 import (
 	"bufio"
@@ -16,11 +16,15 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/celzero/gateway/midway/env"
 )
 
 var (
-	flyappname = flyappname_env()
-	flyurl     = flyappname + ".fly.dev"
+	flyappname     = env.FlyAppName()
+	flyurl         = flyappname + ".fly.dev"
+	noproxytimeout = env.NoProxyTimeoutSec()
+	conntimeout    = env.ConnTimeoutSec()
 )
 
 type Conn struct {
@@ -85,7 +89,7 @@ func NewProxyConn(c net.Conn) *Conn {
 	}
 }
 
-func (src *Conn) forward() {
+func (src *Conn) Forward() {
 	defer src.Close()
 
 	// TODO: discard health-checks conns appear from fly-edge w.x.y.z
@@ -209,5 +213,5 @@ func asTLSConn(c net.Conn) *tls.Conn {
 	if tlsconn, ok := uc.(*tls.Conn); ok {
 		return tlsconn
 	}
-	return tls.Server(c, tlsconfig())
+	return tls.Server(c, env.TlsConfig())
 }

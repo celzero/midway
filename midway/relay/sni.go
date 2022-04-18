@@ -22,7 +22,7 @@
 //   limitations under the License.
 
 // Adopted from: github.com/inetaf/tcpproxy/blob/be3ee21/sni.go
-package main
+package relay
 
 import (
 	"bufio"

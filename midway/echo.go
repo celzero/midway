@@ -3,7 +3,7 @@
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
-package main
+package midway
 
 import (
 	"bufio"
@@ -13,16 +13,16 @@ import (
 	"net"
 	"sync"
 
+	"github.com/celzero/gateway/midway/env"
 	proxyproto "github.com/pires/go-proxyproto"
 )
 
-// mtu on fly is 1420
-const mtu = 1420
+var (
+	mtu         = env.Mtu()
+	udproutines = env.TotalUdpServerRoutines()
+)
 
-// runtime.NumCPU() instead?
-const udproutines = 4
-
-func echoUDP(c net.PacketConn, wg *sync.WaitGroup) {
+func EchoUDP(c net.PacketConn, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	if c == nil {
@@ -62,7 +62,7 @@ func processudp(c net.PacketConn, uwg *sync.WaitGroup) {
 	}
 }
 
-func echoTCP(tcp net.Listener, wg *sync.WaitGroup) {
+func EchoTCP(tcp net.Listener, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	if tcp == nil {
@@ -85,7 +85,7 @@ func echoTCP(tcp net.Listener, wg *sync.WaitGroup) {
 	}
 }
 
-func echoPP(pp *proxyproto.Listener, wg *sync.WaitGroup) {
+func EchoPP(pp *proxyproto.Listener, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	if pp == nil {
