@@ -15,12 +15,11 @@ import (
 	"sync"
 	"time"
 
-	"golang.org/x/net/http2"
-
-	"golang.org/x/net/http2/h2c"
-
 	"github.com/miekg/dns"
 	proxyproto "github.com/pires/go-proxyproto"
+
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
 )
 
 var (
@@ -137,8 +136,8 @@ func main() {
 	hold.Wait()
 }
 
-func onNewConn(c net.Conn) (net.Conn, bool) {
-	d := ProxConn(c)
+func accept(c net.Conn) (net.Conn, bool) {
+	d := NewProxyConn(c)
 	// if the incoming sni == our dns-server, then serve the req
 	for i := range tlsDNSNames {
 		if strings.Contains(d.HostName, tlsDNSNames[i]) {
@@ -146,7 +145,7 @@ func onNewConn(c net.Conn) (net.Conn, bool) {
 		}
 	}
 	// else, proxy the request to the backend as approp
-	go forwardConn(d)
+	go d.forward()
 	return d, true
 }
 
@@ -158,7 +157,7 @@ func startPPWithDoH(tcp *proxyproto.Listener, doh *http.Client, wg *sync.WaitGro
 		return
 	}
 
-	if stls := splitTlsListener(tcp, onNewConn); stls != nil {
+	if stls := splitTlsListener(tcp, accept); stls != nil {
 		log.Print("mode: relay + DoH ", tcp.Addr().String())
 
 		mux := http.NewServeMux()
@@ -189,7 +188,7 @@ func startPPWithDoT(tcp *proxyproto.Listener, doh *http.Client, wg *sync.WaitGro
 		return
 	}
 
-	if stls := splitTlsListener(tcp, onNewConn); stls != nil {
+	if stls := splitTlsListener(tcp, accept); stls != nil {
 		log.Print("mode: relay + DoT ", tcp.Addr().String())
 
 		// ref: github.com/miekg/dns/blob/dedee46/server.go#L192
@@ -225,7 +224,9 @@ func startPP(tcp *proxyproto.Listener, wg *sync.WaitGroup) {
 
 	for {
 		if conn, err := tcp.Accept(); err == nil {
-			go forwardConn(ProxConn(conn))
+			if _, ok := accept(conn); !ok {
+				log.Print("cannot accept conn")
+			}
 		} else {
 			log.Print("handle pp tcp err")
 			if errors.Is(err, net.ErrClosed) {

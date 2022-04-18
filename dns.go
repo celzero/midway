@@ -79,7 +79,7 @@ func responseWithCode(q *dns.Msg, rcode int) *dns.Msg {
 	return a
 }
 
-func dohHandler(resolver *http.Client) func(http.ResponseWriter, *http.Request) {
+func dohHandler(resolver *http.Client) http.HandlerFunc {
 	// ref: github.com/folbricht/routedns/blob/5932594/dohlistener.go#L153
 	return func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
