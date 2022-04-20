@@ -14,9 +14,11 @@ import (
 	proxyproto "github.com/pires/go-proxyproto"
 )
 
+type HandlerFunc func(net.Conn) (net.Conn, bool)
+
 type splitListener struct {
 	listener *proxyproto.Listener
-	onConn   func(net.Conn) (net.Conn, bool)
+	onConn   HandlerFunc
 }
 
 func (l *splitListener) Accept() (net.Conn, error) {
@@ -43,7 +45,7 @@ func (l *splitListener) Addr() net.Addr {
 }
 
 // ref: stackoverflow.com/a/69828625
-func NewTlsListener(tcp *proxyproto.Listener, in func(net.Conn) (net.Conn, bool)) net.Listener {
+func NewTlsListener(tcp *proxyproto.Listener, in HandlerFunc) net.Listener {
 	if cfg := env.TlsConfig(); cfg == nil {
 		// no tls-certs setup, so split-listener isn't really required
 		return nil

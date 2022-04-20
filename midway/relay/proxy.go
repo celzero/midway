@@ -158,6 +158,7 @@ func (c *Conn) validroute(to net.Conn) bool {
 	return false
 }
 
+// TODO: admission control with tc / htb
 func proxyCopy(label string, dst, src net.Conn, wg *sync.WaitGroup) {
 	defer wg.Done()
 
