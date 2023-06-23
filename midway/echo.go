@@ -55,7 +55,7 @@ func processudp(c net.PacketConn, uwg *sync.WaitGroup) {
 			continue
 		}
 
-		log.Println("umsg: " + string(packet[:n]) + " / by: " + raddr.String())
+		log.Println("umsg: " + n + " - " + string(packet[:n]) + " / by: " + raddr.String())
 		// echo packet and raddr back
 		c.WriteTo(packet[:n], raddr)
 		c.WriteTo([]byte(raddr.String()), raddr)
@@ -112,7 +112,7 @@ func processtcp(c net.Conn) {
 	defer c.Close()
 
 	line, _ := bufio.NewReader(c).ReadString('\n')
-	log.Println("tmsg: " + string(line) + " / by: " + c.RemoteAddr().String())
+	log.Println("tmsg: " + len(line) + " - " + string(line) + " / by: " + c.RemoteAddr().String())
 	// echo msg and rip back
 	fmt.Fprint(c, line)
 	fmt.Fprint(c, c.RemoteAddr())
