@@ -26,6 +26,8 @@ jobs:
         - name: 🚢 Ship
           run: "flyctl deploy
                 --app $FLY_APP
+                --auto-confirm
+                --no-cache
                 --remote-only
                 --strategy rolling
                 --verbose
