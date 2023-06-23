@@ -91,6 +91,10 @@ func FlyAppName() string {
 	return strenv("FLY_APP_NAME", "")
 }
 
+func ProxyDisabled() bool {
+	return strenv("PROXY_DISABLED", "true") == "true"
+}
+
 func intenv(k string, d int64) int64 {
 	if i, err := strconv.ParseInt(os.Getenv(k), 10, 0); err == nil {
 		return i

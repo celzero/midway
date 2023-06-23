@@ -24,6 +24,7 @@ var (
 	flyappname     = env.FlyAppName()
 	flyurl         = flyappname + ".fly.dev"
 	noproxytimeout = env.NoProxyTimeoutSec()
+	dontproxy      = env.ProxyDisabled()
 	conntimeout    = env.ConnTimeoutSec()
 )
 
@@ -125,6 +126,9 @@ func (src *Conn) Forward() {
 }
 
 func (c *Conn) disallow() bool {
+	if dontproxy {
+		return true
+	}
 	dsturl := c.HostName
 
 	if len(dsturl) <= 0 {

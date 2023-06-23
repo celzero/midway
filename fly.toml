@@ -9,6 +9,7 @@ processes = []
   NOPROXY_TIMEOUT_SEC = "20"
   MAX_INFLIGHT_DNS_QUERIES = 1024
   UPSTREAM_DOH = "https://dns.google/dns-query"
+  PROXY_DISABLED = "true"
   # TLS_CERT_PATH = "./test/certs/server.crt"
   # TLS_KEY_PATH = "./test/certs/server.key"
   # TLS_CERTKEY = "key=b64(server.key)\ncrt=b64(server.crt)"
@@ -19,6 +20,8 @@ processes = []
 
 # echo tcp/udp svc on 5xxx
 [[services]]
+  auto_stop_machines = true
+  auto_start_machines = true
   internal_port = 5000
   protocol = "udp"
 
@@ -26,6 +29,8 @@ processes = []
     port = "5000"
 
 [[services]]
+  auto_stop_machines = true
+  auto_start_machines = true
   internal_port = 5000
   protocol = "tcp"
 
@@ -33,6 +38,8 @@ processes = []
     port = "5000"
 
 [[services]]
+  auto_stop_machines = true
+  auto_start_machines = true
   internal_port = 5001
   protocol = "tcp"
 
@@ -42,6 +49,8 @@ processes = []
 
 # h1x on 80
 [[services]]
+  auto_stop_machines = true
+  auto_start_machines = true
   internal_port = 80
   protocol = "tcp"
 
@@ -62,6 +71,8 @@ processes = []
 
 # proxifier and doh svc on 80, 443
 [[services]]
+  auto_stop_machines = true
+  auto_start_machines = true
   internal_port = 443
   protocol = "tcp"
 
@@ -82,6 +93,8 @@ processes = []
 
 # dot svc on port 853
 [[services]]
+  auto_stop_machines = true
+  auto_start_machines = true
   internal_port = 853
   protocol = "tcp"
 
@@ -103,6 +116,8 @@ processes = []
 # doh with fly-terminated tls on 1443
 # community.fly.io/t/4449
 [[services]]
+  auto_stop_machines = true
+  auto_start_machines = true
   internal_port = 1443
   protocol = "tcp"
 
@@ -125,6 +140,8 @@ processes = []
 # dot with fly-terminated tls on port 1853
 # community.fly.io/t/4495
 [[services]]
+  auto_stop_machines = true
+  auto_start_machines = true
   internal_port = 1853
   protocol = "tcp"
 
