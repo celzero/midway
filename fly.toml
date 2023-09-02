@@ -21,7 +21,7 @@ processes = []
 # echo tcp/udp svc on 5xxx
 [[services]]
   auto_stop_machines = true
-  auto_start_machines = true
+  auto_start_machines = false
   internal_port = 5000
   protocol = "udp"
 
@@ -30,7 +30,7 @@ processes = []
 
 [[services]]
   auto_stop_machines = true
-  auto_start_machines = true
+  auto_start_machines = false
   internal_port = 5000
   protocol = "tcp"
 
@@ -39,7 +39,7 @@ processes = []
 
 [[services]]
   auto_stop_machines = true
-  auto_start_machines = true
+  auto_start_machines = false
   internal_port = 5001
   protocol = "tcp"
 
@@ -50,7 +50,7 @@ processes = []
 # h1x on 80
 [[services]]
   auto_stop_machines = true
-  auto_start_machines = true
+  auto_start_machines = false
   internal_port = 80
   protocol = "tcp"
 
@@ -72,7 +72,7 @@ processes = []
 # proxifier and doh svc on 80, 443
 [[services]]
   auto_stop_machines = true
-  auto_start_machines = true
+  auto_start_machines = false
   internal_port = 443
   protocol = "tcp"
 
@@ -94,7 +94,7 @@ processes = []
 # dot svc on port 853
 [[services]]
   auto_stop_machines = true
-  auto_start_machines = true
+  auto_start_machines = false
   internal_port = 853
   protocol = "tcp"
 
@@ -117,7 +117,7 @@ processes = []
 # community.fly.io/t/4449
 [[services]]
   auto_stop_machines = true
-  auto_start_machines = true
+  auto_start_machines = false
   internal_port = 1443
   protocol = "tcp"
 
@@ -141,7 +141,7 @@ processes = []
 # community.fly.io/t/4495
 [[services]]
   auto_stop_machines = true
-  auto_start_machines = true
+  auto_start_machines = false
   internal_port = 1853
   protocol = "tcp"
 
